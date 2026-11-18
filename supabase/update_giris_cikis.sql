@@ -1,16 +1,11 @@
 -- QR Mola Takip: giriş/çıkış + davet kodsuz kayıt güncellemesi
-alter table public.companies enable row level security;
-alter table public.company_secrets enable row level security;
-alter table public.profiles enable row level security;
-alter table public.events enable row level security;
-alter table public.leaves enable row level security;
-alter table public.notifications enable row level security;
 
-create or replace function public._user_day(p_user uuid, p_day date)
-returns table(day date, status text, first_in timestamptz, worked_sec int, break_sec int,
-              allowance_sec int, break_since timestamptz, breaks int,
-              late_min int, is_late boolean, leave_kind text, is_workday boolean)
-language plpgsql stable security definer set search_path = public as $$
+create or replace function public._user_day(p_user uuid, p_day date,
+  out day date, out status text, out first_in timestamptz, out worked_sec int, out break_sec int,
+  out allowance_sec int, out break_since timestamptz, out breaks int,
+  out late_min int, out is_late boolean, out leave_kind text, out is_workday boolean)
+returns setof record
+language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column
 declare
   p profiles; c companies; f timestamptz; r record; lk text; lt int := 0; wd boolean; st text; loc timestamp;
@@ -82,11 +77,12 @@ begin
 end $$;
 
 drop function if exists public.team_today();
-create or replace function public.team_today()
-returns table(user_id uuid, full_name text, contact text, role text, status text, first_in timestamptz,
-              worked_sec int, break_sec int, allowance_sec int, break_since timestamptz, breaks int,
-              late_min int, is_late boolean, leave_kind text, last_event_at timestamptz, server_now timestamptz,
-              last_out timestamptz)
+create or replace function public.team_today(
+  out user_id uuid, out full_name text, out contact text, out role text, out status text, out first_in timestamptz,
+  out worked_sec int, out break_sec int, out allowance_sec int, out break_since timestamptz, out breaks int,
+  out late_min int, out is_late boolean, out leave_kind text, out last_event_at timestamptz, out server_now timestamptz,
+  out last_out timestamptz)
+returns setof record
 language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column
 declare cid uuid; today date; tz text;
