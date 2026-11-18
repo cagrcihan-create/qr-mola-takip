@@ -160,14 +160,7 @@ function renderAuth() {
         ? `<label class="f">E-posta<input class="inp" name="email" type="email" autocomplete="email" required placeholder="ornek@sirket.com"></label>`
         : `<label class="f">Telefon<input class="inp" name="phone" type="tel" autocomplete="tel" inputmode="tel" required placeholder="05XX XXX XX XX"></label>`}
       <label class="f">Şifre<input class="inp" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required minlength="6" placeholder="En az 6 karakter"></label>
-      ${reg ? `
-        <div class="seg" aria-label="Hesap türü">
-          <button type="button" class="${a.mode === 'join' ? 'on' : ''}" data-act="authMode" data-v="join">Çalışanım</button>
-          <button type="button" class="${a.mode === 'create' ? 'on' : ''}" data-act="authMode" data-v="create">Yöneticiyim</button>
-        </div>
-        ${a.mode === 'join'
-          ? `<label class="f">Şirket davet kodu<input class="inp" name="code" required autocapitalize="characters" placeholder="Yöneticinden aldığın 6 haneli kod"></label>`
-          : `<label class="f">Şirket / işletme adı<input class="inp" name="company" required placeholder="Örn. Merkez Ofis"></label>`}` : ''}
+      ${reg ? `<p class="xs muted" style="margin:0">Kayıt olunca çalışan olarak eklenirsin. Yönetici yetkisini yöneticin verir.</p>` : ''}
       ${a.err ? `<div class="err" role="alert">${esc(a.err)}</div>` : ''}
       ${a.msg ? `<div class="ok" role="status">${esc(a.msg)}</div>` : ''}
       <button class="btn big" type="submit">${reg ? 'Kayıt ol' : 'Giriş yap'}</button>
@@ -188,9 +181,7 @@ async function submitAuth(form) {
       return;
     }
     if (!String(f.full_name || '').trim()) throw new Error('Ad soyad yaz.');
-    if (a.mode === 'join' && !String(f.code || '').trim()) throw new Error('Davet kodunu yaz.');
-    if (a.mode === 'create' && !String(f.company || '').trim()) throw new Error('Şirket adını yaz.');
-    localStorage.setItem('qrm_onboard', JSON.stringify({ mode: a.mode, code: f.code, company: f.company, full_name: f.full_name, contact }));
+    localStorage.setItem('qrm_onboard', JSON.stringify({ mode: 'auto', full_name: f.full_name, contact }));
     const { data, error } = await S.sb.auth.signUp({ email, password: f.password, options: { data: { full_name: f.full_name }, emailRedirectTo: BASE } });
     if (error) throw error;
     if (!data.session) { a.tab = 'login'; a.msg = 'Kayıt alındı. E-postana gelen doğrulama bağlantısına tıkla, sonra giriş yap.'; renderAuth(); }
@@ -203,8 +194,20 @@ async function submitAuth(form) {
 let onboardTried = false;
 function renderOnboard(err) {
   const ob = JSON.parse(localStorage.getItem('qrm_onboard') || '{}');
-  if (!err && !onboardTried && ob.full_name && (ob.code || ob.company)) { onboardTried = true; return finishOnboard(ob); }
-  const mode = ob.mode || 'join';
+  if (!err && !onboardTried && ob.full_name && (ob.mode === 'auto' || ob.code || ob.company)) { onboardTried = true; return finishOnboard(ob); }
+  const mode = ob.mode || 'auto';
+  if (mode === 'auto') {
+    app.innerHTML = `<div class="phone" style="padding-top:40px">
+      <h1 class="h1">Son bir adım</h1>
+      <form class="col card" data-form="onboard">
+        <label class="f">Ad soyad<input class="inp" name="full_name" value="${esc(ob.full_name || '')}" required></label>
+        ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ''}
+        <button class="btn big" type="submit">Devam et</button>
+      </form>
+      <button class="btn ghost" data-act="logout">Farklı hesapla giriş yap</button>
+    </div>`;
+    return;
+  }
   app.innerHTML = `<div class="phone" style="padding-top:40px">
     <h1 class="h1">Son bir adım</h1>
     <p class="muted" style="margin:0">Hesabını bir şirkete bağla.</p>
@@ -225,11 +228,16 @@ async function finishOnboard(ob) {
   const contact = ob.contact || (S.session && S.session.user && S.session.user.email) || null;
   const r = ob.mode === 'create'
     ? await S.sb.rpc('create_company', { p_company: ob.company, p_full_name: ob.full_name, p_contact: contact })
-    : await S.sb.rpc('join_company', { p_code: ob.code, p_full_name: ob.full_name, p_contact: contact });
-  if (r.error) { localStorage.setItem('qrm_onboard', JSON.stringify(ob)); return renderOnboard(errMsg(r.error)); }
+    : ob.mode === 'join'
+      ? await S.sb.rpc('join_company', { p_code: ob.code, p_full_name: ob.full_name, p_contact: contact })
+      : await S.sb.rpc('join_default', { p_full_name: ob.full_name, p_contact: contact });
+  if (r.error) {
+    if (ob.mode === 'auto' && /Davet kodu gerekli/.test(r.error.message || '')) ob.mode = 'join';
+    localStorage.setItem('qrm_onboard', JSON.stringify(ob)); return renderOnboard(errMsg(r.error));
+  }
   localStorage.removeItem('qrm_onboard');
   await loadMe();
-  if (S.me && S.me.role === 'admin') { S.tab = 'staff'; toast('Şirketin oluşturuldu. Davet kodunu çalışanlarınla paylaş.'); }
+  if (S.me && S.me.role === 'admin') { S.tab = 'staff'; toast('Hesabın hazır. Uygulama bağlantısını çalışanlarınla paylaş.'); }
   route();
 }
 
@@ -537,7 +545,7 @@ function liveHtml() {
                 <button class="btn sm ${L.over ? '' : 'ghost'}" data-act="warn" data-u="${r.user_id}">Uyar</button>
                 <button class="btn sm ghost" data-act="manual" data-u="${r.user_id}">Düzelt</button>
               </td></tr>`;
-          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${team.length ? 'Bu filtrede kimse yok.' : (S.team.length ? 'Bugün henüz molaya çıkan yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki davet kodunu paylaş.')}</td></tr>`}</tbody>
+          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${team.length ? 'Bu filtrede kimse yok.' : (S.team.length ? 'Bugün henüz molaya çıkan yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki bağlantıyı paylaş.')}</td></tr>`}</tbody>
         </table></div>
       </section>
       <aside class="side">
@@ -699,12 +707,12 @@ async function loadStaff() {
     const c = S.me.company;
     const { data: comp } = await S.sb.from('companies').select('*').eq('id', c.id).single();
     S.company = comp;
-    const inviteText = `${comp.name} mola takip uygulamasına katıl:\n${BASE}\nKayıt olurken davet kodu: ${comp.invite_code}`;
+    const inviteText = `${comp.name} mola takip uygulaması:\n${BASE}\nBağlantıyı aç, “Kayıt ol”a dokun ve e-postanla kayıt ol.`;
     document.getElementById('admin-main').innerHTML = `<h1 class="h1">Çalışanlar</h1>
       <section class="card row between" style="flex-wrap:wrap;gap:16px">
-        <div class="col" style="gap:4px"><span class="small muted">Davet kodu</span><span class="num" style="font-size:34px;font-weight:700;letter-spacing:3px">${esc(comp.invite_code)}</span>
-        <span class="small muted">Çalışanlar uygulamada “Kayıt ol → Çalışanım” seçip bu kodu girer.</span></div>
-        <div class="row" style="flex-wrap:wrap"><button class="btn" data-act="share" data-v="${esc(inviteText)}">Davet mesajını paylaş</button><button class="btn line" data-act="copy" data-v="${esc(inviteText)}">Kopyala</button></div>
+        <div class="col" style="gap:4px;max-width:560px"><span class="small muted">Uygulama bağlantısı</span><b style="font-size:17px;word-break:break-all">${esc(BASE)}</b>
+        <span class="small muted">Çalışanlar bu bağlantıdan e-postasıyla kayıt olur ve otomatik olarak <b>çalışan</b> olarak aşağıdaki listeye eklenir. Birini yönetici yapmak için “Rol”ü değiştirip Kaydet'e bas.</span></div>
+        <div class="row" style="flex-wrap:wrap"><button class="btn" data-act="share" data-v="${esc(inviteText)}">Bağlantıyı paylaş</button><button class="btn line" data-act="copy" data-v="${esc(inviteText)}">Kopyala</button></div>
       </section>
       <section class="card" style="padding:0"><div class="tbl-wrap"><table class="tbl" style="min-width:820px"><thead><tr><th style="padding-left:20px">Ad soyad</th><th>İletişim</th><th>Rol</th><th>Takip</th><th>Aktif</th><th>Özel mola hakkı (dk)</th><th></th></tr></thead>
       <tbody>${S.staff.map((p) => `<tr data-row="${p.id}">
@@ -715,7 +723,7 @@ async function loadStaff() {
         <td><label class="row small" style="gap:6px"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} ${p.id === S.me.user_id ? 'disabled' : ''}> Aktif</label></td>
         <td><input class="inp" type="number" min="0" max="600" name="break_allowance_min" value="${p.break_allowance_min ?? ''}" placeholder="Şirket: ${comp.break_allowance_min}" aria-label="Özel mola hakkı" style="height:40px;width:130px"></td>
         <td style="text-align:right;padding-right:20px"><button class="btn sm" data-act="saveStaff" data-v="${p.id}">Kaydet</button></td></tr>`).join('')}</tbody></table></div></section>
-      <p class="small muted" style="margin:0">“Mola takibi” kapalı olanlar (örneğin yöneticiler) canlı ekranda ve raporlarda görünmez. Özel mola hakkı boşsa şirketin günlük mola hakkı geçerlidir. Pasif yapılan çalışan QR okutamaz.</p>`;
+      <p class="small muted" style="margin:0">“Mola takibi” kapalı olanlar (örneğin yöneticiler) canlı ekranda ve raporlarda görünmez. Özel mola hakkı boşsa şirketin günlük mola hakkı geçerlidir. Pasif yapılan çalışan QR okutamaz.<br><b>Çalışan</b> sadece kendi molasını görür; <b>Yönetici</b> tüm paneli görür ve ayarları değiştirebilir.</p>`;
   } catch (e) { document.getElementById('admin-main').innerHTML = `<div class="err">${esc(errMsg(e))}</div>`; }
 }
 async function saveStaff(id) {
@@ -899,7 +907,7 @@ app.addEventListener('submit', async (e) => {
   e.preventDefault();
   const k = form.dataset.form, f = Object.fromEntries(new FormData(form));
   if (k === 'auth') return submitAuth(form);
-  if (k === 'onboard') { const ob = JSON.parse(localStorage.getItem('qrm_onboard') || '{}'); return finishOnboard({ ...ob, ...f, mode: ob.mode || 'join' }); }
+  if (k === 'onboard') { const ob = JSON.parse(localStorage.getItem('qrm_onboard') || '{}'); return finishOnboard({ ...ob, ...f, mode: ob.mode || 'auto' }); }
   if (k === 'report') return runReport(f);
   if (k === 'leave') {
     if (f.day_to < f.day_from) return toast('Bitiş tarihi başlangıçtan önce olamaz');
