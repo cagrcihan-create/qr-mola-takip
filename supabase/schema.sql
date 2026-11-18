@@ -1,5 +1,5 @@
 -- =====================================================================
--- QR Mola & Mesai Takip — Supabase veritabanı kurulumu
+-- QR Mola Takip — Supabase veritabanı kurulumu (sadece mola)
 -- Supabase panelinde: SQL Editor > New query > bu dosyanın tamamını yapıştır > Run
 -- Tekrar çalıştırılabilir (fonksiyonları günceller, tabloları silmez).
 -- =====================================================================
@@ -114,7 +114,8 @@ begin
     if e.kind = 'in' then
       if st in ('off','done') then st := 'working'; ws := e.at; fi := coalesce(fi, e.at); end if;
     elsif e.kind = 'break_start' then
-      if st = 'working' then w := w + extract(epoch from e.at - ws); st := 'break'; bs := e.at; n := n + 1; end if;
+      if st = 'working' then w := w + extract(epoch from e.at - ws); end if;
+      if st <> 'break' then st := 'break'; bs := e.at; n := n + 1; end if;
     elsif e.kind = 'break_end' then
       if st = 'break' then b := b + extract(epoch from e.at - bs); st := 'working'; ws := e.at; end if;
     elsif e.kind = 'out' then
@@ -149,15 +150,8 @@ begin
   end if;
   loc := now() at time zone c.timezone;
   st := r.status;
-  if st = 'off' and p_day < (p.created_at at time zone c.timezone)::date then
-    st := 'off';
-  elsif st = 'off' then
-    if lk is not null then st := 'leave';
-    elsif not wd then st := 'off';
-    elsif p_day < loc::date or (p_day = loc::date and loc::time > c.absent_after) then st := 'absent';
-    elsif p_day = loc::date then st := 'not_yet';
-    end if;
-  end if;
+  -- sadece mola takibi: molada değilse 'off' (işte)
+  if st in ('working','done') then st := 'off'; end if;
   return query select p_day, st, r.first_in, r.worked_sec, r.break_sec,
     coalesce(p.break_allowance_min, c.break_allowance_min) * 60,
     r.break_since, r.breaks, lt, (r.first_in is not null and wd and lt > c.late_tolerance_min), lk, wd;
@@ -185,7 +179,7 @@ begin
   from profiles a where a.company_id = p_company and a.role = 'admin' and a.active and a.id <> p_ref_user;
 end $$;
 
--- Fazla mola ve gelmeyen kontrolü (her dakika otomatik + yönetici paneli açıkken)
+-- Fazla mola kontrolü (her dakika otomatik + yönetici paneli açıkken)
 create or replace function public.check_alerts(p_company uuid default null)
 returns int language plpgsql security definer set search_path = public as $$
 declare pr record; d record; c companies; n int := 0; today date;
@@ -201,12 +195,6 @@ begin
         'Günlük mola hakkını aştın. Lütfen QR okutup işe dön.',
         'Fazla mola: ' || pr.full_name,
         pr.full_name || ' günlük mola hakkını aştı ve hâlâ molada.');
-      n := n + 1;
-    elsif d.status = 'absent' and d.is_workday then
-      perform _alert(pr.company_id, 'absent', pr.id, (today::timestamp at time zone c.timezone),
-        null, null,
-        'Gelmedi: ' || pr.full_name,
-        pr.full_name || ' bugün giriş yapmadı ve izin kaydı yok.');
       n := n + 1;
     end if;
   end loop;
@@ -303,22 +291,15 @@ begin
 
   today := (now() at time zone c.timezone)::date;
   select * into d from _user_day(p.id, today);
-  if p_action = 'in' and d.status in ('working','break') then raise exception 'Zaten mesaidesin';
-  elsif p_action = 'break_start' and d.status <> 'working' then raise exception 'Molaya çıkmak için önce mesaiye giriş yapmalısın';
+  if p_action not in ('break_start','break_end') then raise exception 'Geçersiz işlem';
+  elsif p_action = 'break_start' and d.status = 'break' then raise exception 'Zaten moladasın';
   elsif p_action = 'break_end' and d.status <> 'break' then raise exception 'Şu an molada değilsin';
-  elsif p_action = 'out' and d.status not in ('working','break') then raise exception 'Mesaide değilsin';
-  elsif p_action not in ('in','break_start','break_end','out') then raise exception 'Geçersiz işlem';
   end if;
 
   insert into events(company_id, user_id, kind, source) values (c.id, p.id, p_action, 'qr');
 
   select * into d2 from _user_day(p.id, today);
-  if p_action = 'in' and d.first_in is null and d2.is_late then
-    perform _alert(c.id, 'late', p.id, (today::timestamp at time zone c.timezone), null, null,
-      'Geç geldi: ' || p.full_name,
-      p.full_name || ' ' || to_char(d2.first_in at time zone c.timezone, 'HH24:MI') || ' saatinde giriş yaptı (' || d2.late_min || ' dk gecikme).');
-  end if;
-  if p_action in ('break_end','out') and d.status = 'break' and d2.break_sec > d2.allowance_sec then
+  if p_action = 'break_end' and d.status = 'break' and d2.break_sec > d2.allowance_sec then
     perform _alert(c.id, 'overdue', p.id, d.break_since,
       'Mola hakkını aştın',
       'Bugün mola hakkını ' || ceil((d2.break_sec - d2.allowance_sec) / 60.0)::int || ' dk aştın.',
@@ -328,8 +309,9 @@ begin
   return my_status();
 end $$;
 
+drop function if exists public.my_history(int);
 create or replace function public.my_history(p_days int default 14)
-returns table(day date, status text, first_in timestamptz, worked_sec int, break_sec int, allowance_sec int, late_min int, is_late boolean, leave_kind text)
+returns table(day date, status text, first_in timestamptz, worked_sec int, break_sec int, allowance_sec int, late_min int, is_late boolean, leave_kind text, breaks int)
 language plpgsql stable security definer set search_path = public as $$
 #variable_conflict use_column
 declare today date; i int;
@@ -337,7 +319,7 @@ begin
   if my_company() is null then return; end if;
   today := _local_today(my_company());
   for i in 0 .. least(greatest(p_days, 1), 62) - 1 loop
-    return query select u.day, u.status, u.first_in, u.worked_sec, u.break_sec, u.allowance_sec, u.late_min, u.is_late, u.leave_kind
+    return query select u.day, u.status, u.first_in, u.worked_sec, u.break_sec, u.allowance_sec, u.late_min, u.is_late, u.leave_kind, u.breaks
       from _user_day(auth.uid(), today - i) u;
   end loop;
 end $$;
@@ -366,9 +348,10 @@ begin
     order by p.full_name;
 end $$;
 
+drop function if exists public.team_report(date, date);
 create or replace function public.team_report(p_from date, p_to date)
 returns table(user_id uuid, full_name text, day date, status text, first_in timestamptz, last_out timestamptz,
-              worked_sec int, break_sec int, allowance_sec int, late_min int, is_late boolean, leave_kind text)
+              worked_sec int, break_sec int, allowance_sec int, late_min int, is_late boolean, leave_kind text, breaks int)
 language plpgsql stable security definer set search_path = public as $$
 #variable_conflict use_column
 declare cid uuid; tz text;
@@ -381,7 +364,7 @@ begin
     select p.id, p.full_name, u.day, u.status, u.first_in,
            (select max(e.at) from events e where e.user_id = p.id and e.kind = 'out'
               and e.at >= (u.day::timestamp at time zone tz) and e.at < ((u.day + 1)::timestamp at time zone tz)),
-           u.worked_sec, u.break_sec, u.allowance_sec, u.late_min, u.is_late, u.leave_kind
+           u.worked_sec, u.break_sec, u.allowance_sec, u.late_min, u.is_late, u.leave_kind, u.breaks
     from profiles p
     cross join generate_series(p_from, p_to, interval '1 day') g(d)
     cross join lateral _user_day(p.id, g.d::date) u

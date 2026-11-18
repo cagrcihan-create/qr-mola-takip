@@ -1,12 +1,12 @@
-# QR Mola & Mesai Takip
+# QR Mola Takip
 
-Çalışanlar girişte, molaya çıkarken, moladan dönerken ve çıkışta **QR okutur**. Uygulama:
+Çalışanlar **molaya çıkarken ve dönerken QR okutur**. Uygulama:
 
-- Çalışana **kalan mola süresini** gösterir; molaya çıkınca **geri sayım** başlar, dönüşte geçen süre mola hakkından düşülür.
-- Mola hakkı biterken (son 5 dk) ve bittiğinde çalışanı uyarır; hak aşılınca **yöneticiye de uyarı** gider.
-- Yöneticiye canlı olarak gösterir: **kim çalışıyor, kim molada (süresiyle), kim izinli, kim gelmedi, kim geç geldi, kim fazla mola yaptı**.
-- Raporlar (tarih aralığı, Excel'e aktarma), izin girişi, çalışan yönetimi, elle düzeltme.
-- Kapıya konan tablette **30 saniyede bir değişen QR** (fotoğrafı çekilip evden okutulamaz) veya istenirse yazdırılabilir sabit QR.
+- Yöneticinin belirlediği **günlük mola hakkını** gösterir; molaya çıkınca kalan süreden **geri sayım** başlar, dönüşte geçen süre hakkından düşülür.
+- Son 5 dakikada ve süre bitince çalışanı uyarır; hak aşılınca **yöneticiye de uyarı** gider.
+- Yönetici canlı olarak görür: **kim şu an molada (süresiyle), kim ne kadar kullandı, kim fazla mola yaptı**.
+- Raporlar (tarih aralığı, Excel'e aktarma), çalışana özel mola hakkı, elle düzeltme.
+- Duvara asılacak yazdırılabilir **MOLA QR** veya tablette 30 saniyede bir değişen QR.
 
 Teknik: tek sayfa web uygulaması (telefonda "Ana ekrana ekle" ile uygulama gibi çalışır), veriler **Supabase**'te.
 

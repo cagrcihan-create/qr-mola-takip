@@ -34,7 +34,7 @@ const I = {
   warn: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   logo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:26px;height:26px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM17 20h4v-3"/></svg>'
 };
-const ST = { working: 'Çalışıyor', break: 'Molada', leave: 'İzinli', absent: 'Gelmedi', done: 'Çıktı', not_yet: 'Henüz gelmedi', off: 'Mesai dışı' };
+const ST = { working: 'İşte', break: 'Molada', leave: 'İşte', absent: 'İşte', done: 'İşte', not_yet: 'İşte', off: 'İşte' };
 const chip = (st, text) => `<span class="chip st-${esc(st)}"><i></i>${esc(text || ST[st] || st)}</span>`;
 const KIND = { in: ['Mesai girişi', I.inn, 'var(--green-bg)', 'var(--green)'], break_start: ['Molaya çıktı', I.cup, 'var(--amber-bg)', 'var(--amber)'], break_end: ['Moladan döndü', I.cup, 'var(--amber-bg)', 'var(--amber)'], out: ['Mesai çıkışı', I.out, 'var(--soft)', '#3B414E'] };
 
@@ -144,7 +144,7 @@ function renderAuth() {
     <div class="col" style="gap:14px">
       <div style="width:56px;height:56px;border-radius:16px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center">${I.logo}</div>
       <div><h1 class="h1">${reg ? 'Hesap oluştur' : 'Giriş yap'}</h1>
-      <p class="muted" style="margin:6px 0 0;line-height:1.5">Giriş, çıkış ve molalarını QR ile kaydet.</p></div>
+      <p class="muted" style="margin:6px 0 0;line-height:1.5">Molaya çıkarken ve dönerken QR okut, kalan mola süreni gör.</p></div>
     </div>
     <div class="seg" role="tablist" aria-label="Giriş veya kayıt">
       <button type="button" role="tab" aria-selected="${!reg}" class="${!reg ? 'on' : ''}" data-act="authTab" data-v="login">Giriş</button>
@@ -263,43 +263,35 @@ function empNav() {
   const b = (v, ic, t, badge) => `<button class="${S.view === v ? 'on' : ''}" data-act="empView" data-v="${v}" aria-current="${S.view === v ? 'page' : 'false'}" style="position:relative">${ic}${t}${badge ? `<span class="dot-badge" style="top:0;right:12px">${badge}</span>` : ''}</button>`;
   return `<nav class="bottomnav" aria-label="Alt menü">${b('home', I.home, 'Ana sayfa')}${b('history', I.clock, 'Geçmiş')}${b('notifs', I.bell, 'Bildirimler', S.me.unread || '')}${b('profile', I.user, 'Profil')}</nav>`;
 }
-function scanLabel(st) {
-  if (st === 'working') return 'QR okut · Molaya çık / Çıkış';
-  if (st === 'break') return 'QR okut · Moladan dön';
-  if (st === 'done') return 'QR okut · Tekrar giriş';
-  return 'QR okut · Mesaiye başla';
-}
+function scanLabel(st) { return st === 'break' ? 'QR okut · Moladan dön' : 'QR okut · Molaya çık'; }
 function renderHomeBody() {
   const m = S.me;
-  const evs = (m.events || []).map((e) => { const k = KIND[e.kind]; return `<div class="ev"><span class="evi" style="background:${k[2]};color:${k[3]}">${k[1]}</span><span class="grow">${k[0]}${e.source === 'manual' ? ' <span class="xs muted">(yönetici)</span>' : ''}</span><span class="num">${tClock(e.at)}</span></div>`; }).join('');
+  const evs = (m.events || []).filter((e) => e.kind === 'break_start' || e.kind === 'break_end');
+  const rows = []; let open = null;
+  evs.forEach((e) => { if (e.kind === 'break_start') open = e; else if (open) { rows.push([open.at, e.at, open.source === 'manual' || e.source === 'manual']); open = null; } });
+  const list = rows.map(([a, b, man]) => `<div class="ev"><span class="evi" style="background:var(--amber-bg);color:var(--amber)">${I.cup}</span><span class="grow">${tClock(a)} – ${tClock(b)}${man ? ' <span class="xs muted">(yönetici)</span>' : ''}</span><b class="num">${fmtMin((new Date(b) - new Date(a)) / 1000)}</b></div>`).join('');
   const perm = ('Notification' in window && Notification.permission === 'default')
     ? `<button class="btn line" data-act="askNotif">${I.bell} Mola uyarıları için bildirimlere izin ver</button>` : '';
   return `
     <div class="row between">
       <div class="col" style="gap:2px"><span class="small muted">${esc(todayLong())}</span><span style="font-size:22px;font-weight:700">Merhaba, ${esc(String(m.full_name).split(' ')[0])}</span></div>
-      ${m.role === 'admin' ? `<button class="btn sm ghost" data-act="toAdmin">Yönetici paneli</button>` : chip(m.status)}
+      ${m.role === 'admin' ? `<button class="btn sm ghost" data-act="toAdmin">Yönetici paneli</button>` : ''}
     </div>
-    ${m.leave_kind ? `<div class="card" style="background:var(--blue-bg);color:var(--blue)"><b>Bugün izinlisin</b> · ${esc(m.leave_kind)}</div>` : ''}
     <div class="leftcard" id="lv-card">
       <div class="row between small" style="font-weight:600"><span id="lv-leftlabel">Kalan mola süren</span><span style="font-weight:500">Günlük hak ${Math.round(m.allowance_sec / 60)} dk</span></div>
       <span class="big num" id="lv-left">--:--</span>
       <div class="bar"><div id="lv-leftbar" style="width:100%"></div></div>
       <span class="small" id="lv-used"></span>
     </div>
-    <div class="card col" style="gap:10px">
-      <div class="row between"><span class="small muted">Bugünkü çalışma</span>${m.role === 'admin' ? chip(m.status) : `<span class="small muted">${m.first_in ? 'Giriş ' + tClock(m.first_in) : 'Henüz giriş yok'}</span>`}</div>
-      <span class="num" style="font-size:34px;font-weight:700" id="lv-work">—</span>
-      ${m.is_late ? `<span class="small" style="color:var(--orange);font-weight:600">${m.late_min} dk geç giriş</span>` : ''}
-      <span class="xs muted">Mesai ${esc(String(m.company.shift_start).slice(0, 5))}–${esc(String(m.company.shift_end).slice(0, 5))}</span>
-    </div>
-    <div class="card"><h2 class="h2" style="margin-bottom:6px">Bugünkü hareketler</h2>${evs || '<p class="muted small" style="margin:6px 0 0">Henüz hareket yok.</p>'}</div>
+    <div class="card"><div class="row between" style="margin-bottom:6px"><h2 class="h2">Bugünkü molalar</h2><span class="small muted">${rows.length} mola</span></div>${list || '<p class="muted small" style="margin:6px 0 0">Bugün henüz molaya çıkmadın.</p>'}</div>
     ${perm}
+    <div class="grow"></div>
     <button class="btn big" data-act="openScan">${I.qr}${scanLabel(m.status)}</button>`;
 }
 function renderBreak() {
   const m = S.me;
   app.innerHTML = `<div class="phone">
-    <div class="row between">${chip('break', 'Moladasın')}<span class="small muted">Çıkış ${tClock(m.break_since)}</span></div>
+    <div class="row between">${chip('break', 'Moladasın')}<span class="small muted">Mola başlangıcı ${tClock(m.break_since)}</span></div>
     <div id="lv-alert"></div>
     <div class="col grow" style="justify-content:center;gap:22px">
       <div class="ring">
@@ -328,7 +320,7 @@ function tickEmployee() {
   if (el('lv-left')) el('lv-left').textContent = over ? '+' + fmtMS(-L.left) : fmtMS(L.left);
   if (el('lv-leftbar')) el('lv-leftbar').style.width = Math.max(0, Math.min(100, L.left / Math.max(1, m.allowance_sec) * 100)) + '%';
   if (el('lv-card')) { el('lv-card').classList.toggle('over', over); el('lv-leftlabel').textContent = over ? 'Mola hakkını aştın' : 'Kalan mola süren'; }
-  if (el('lv-used')) el('lv-used').textContent = `Bugün ${fmtMin(L.brk)} mola kullandın${m.status === 'break' ? '' : ' · Molaya çıkınca bu süreden geri sayılır'}`;
+  if (el('lv-used')) el('lv-used').textContent = `Bugün ${fmtMin(L.brk)} kullandın · QR okutup molaya çıkınca bu süreden geri sayılır`;
   if (el('lv-work')) el('lv-work').textContent = fmtHM(L.worked);
   if (m.status === 'break') {
     const warn = !over && L.left < 300;
@@ -361,11 +353,10 @@ async function loadHistory() {
   const { data, error } = await S.sb.rpc('my_history', { p_days: 14 });
   const box = document.getElementById('hist'); if (!box) return;
   if (error) { box.innerHTML = `<div class="err">${esc(errMsg(error))}</div>`; return; }
-  histCache = data;
   box.innerHTML = data.map((r) => {
     const over = r.break_sec > r.allowance_sec;
-    return `<div class="ev" style="flex-wrap:wrap"><span class="grow" style="min-width:120px"><b>${esc(tDate(r.day))}</b><br><span class="xs muted">${r.first_in ? 'Giriş ' + tClock(r.first_in) : ''}${r.is_late ? ` · <span style="color:var(--orange)">${r.late_min} dk geç</span>` : ''}${r.leave_kind ? esc(r.leave_kind) : ''}</span></span>
-      <span class="col" style="gap:2px;align-items:flex-end"><span class="num small">${r.worked_sec ? fmtHM(r.worked_sec) : chip(r.status)}</span>${r.worked_sec || r.break_sec ? `<span class="num xs" style="color:${over ? '#B91C1C' : 'var(--muted)'};font-weight:${over ? 700 : 400}">Mola ${fmtMin(r.break_sec)}${over ? ' (aşım)' : ''}</span>` : ''}</span></div>`;
+    return `<div class="ev"><span class="grow"><b>${esc(tDate(r.day))}</b><br><span class="xs muted">${r.breaks || 0} mola</span></span>
+      <span class="col" style="gap:2px;align-items:flex-end"><b class="num" style="color:${over ? '#B91C1C' : 'inherit'}">${r.break_sec ? fmtMin(r.break_sec) : '—'}</b><span class="xs" style="color:${over ? '#B91C1C' : 'var(--muted)'}">${over ? Math.ceil((r.break_sec - r.allowance_sec) / 60) + ' dk aşım' : 'hak ' + Math.round(r.allowance_sec / 60) + ' dk'}</span></span></div>`;
   }).join('') || '<p class="muted small">Kayıt yok.</p>';
 }
 function renderNotifsBody() {
@@ -385,11 +376,11 @@ function renderProfileBody() {
   const m = S.me;
   return `<h1 class="h1">Profil</h1>
     <div class="card col"><div class="row"><span class="av" style="width:48px;height:48px;font-size:16px">${esc(initials(m.full_name))}</span><div class="col" style="gap:2px"><b>${esc(m.full_name)}</b><span class="small muted">${esc(m.company.name)} · ${m.role === 'admin' ? 'Yönetici' : 'Çalışan'}</span></div></div>
-    <span class="small muted">Günlük mola hakkı: ${Math.round(m.allowance_sec / 60)} dk · Mesai ${esc(String(m.company.shift_start).slice(0, 5))}–${esc(String(m.company.shift_end).slice(0, 5))}</span></div>
+    <span class="small muted">Günlük mola hakkı: ${Math.round(m.allowance_sec / 60)} dk</span></div>
     ${'Notification' in window && Notification.permission !== 'granted' ? `<button class="btn line" data-act="askNotif">${I.bell} Bildirimlere izin ver</button>` : ''}
     ${m.role === 'admin' ? `<button class="btn ghost" data-act="toAdmin">Yönetici paneline geç</button>` : ''}
     <button class="btn ghost" data-act="logout">Çıkış yap</button>
-    <p class="xs muted" style="margin:0">İpucu: Telefonda tarayıcı menüsünden “Ana ekrana ekle” diyerek uygulama gibi kullanabilirsin.</p>`;
+    <p class="xs muted" style="margin:0">İpucu: Telefonda Safari'de Paylaş → “Ana Ekrana Ekle” diyerek uygulama gibi kullanabilirsin.</p>`;
 }
 
 // ------------------------------------------------------------------ QR okutma
@@ -398,7 +389,7 @@ function renderScanner(err) {
     <div class="row between"><button class="iconbtn" style="background:#23252B;border:0;color:#fff" aria-label="Geri" data-act="closeScan">${I.back}</button><b>QR Okut</b><span style="width:44px"></span></div>
     <div class="col grow" style="justify-content:center;gap:18px">
       <div id="reader"></div>
-      <p style="margin:0;text-align:center;color:#B7BCC7;line-height:1.5" class="small">${S.me.status === 'break' ? 'İçeri girerken kapıdaki QR kodu okut.<br>Geçen süre mola hakkından düşülür.' : S.me.status === 'working' ? 'Kapıdaki QR kodu okut, sonra işlemi seç.' : 'Mesaiye başlamak için kapıdaki QR kodu okut.'}</p>
+      <p style="margin:0;text-align:center;color:#B7BCC7;line-height:1.5" class="small">${S.me.status === 'break' ? 'Dönüşte duvardaki MOLA QR kodunu okut.<br>Geçen süre mola hakkından düşülür.' : 'Molaya çıkarken duvardaki MOLA QR kodunu okut.<br>Okuttuğun an geri sayım başlar.'}</p>
       ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ''}
     </div>
   </div></div>`;
@@ -429,23 +420,7 @@ async function handleToken(text) {
   const token = extractToken(text);
   if (!S.me) return route();
   await refreshMe();
-  const st = S.me.status;
-  if (st === 'break') return doScan(token, 'break_end');
-  if (st === 'working') {
-    S.view = 'choose'; S.chooseToken = token;
-    app.innerHTML = `<div class="phone" style="justify-content:flex-end">
-      <div class="col grow" style="justify-content:center;align-items:center;text-align:center;gap:12px">
-        <span style="width:64px;height:64px;border-radius:32px;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center">${I.check}</span>
-        <h1 class="h1">Kod okundu</h1><p class="muted" style="margin:0">Ne yapmak istiyorsun?</p>
-      </div>
-      <button class="btn big" data-act="doScan" data-v="break_start" style="justify-content:space-between"><span>Molaya çık</span><span class="small" style="font-weight:500;color:#C9CDD6" id="lv-chooseleft"></span></button>
-      <button class="btn big ghost" data-act="doScan" data-v="out">Mesaiyi bitir (çıkış)</button>
-      <button class="btn ghost" data-act="empView" data-v="home">Vazgeç</button>
-    </div>`;
-    const L = live(); const c = document.getElementById('lv-chooseleft'); if (c) c.textContent = L.left > 0 ? `${fmtMS(L.left)} hakkın var` : 'hakkın doldu';
-    return;
-  }
-  return doScan(token, 'in');
+  return doScan(token, S.me.status === 'break' ? 'break_end' : 'break_start');
 }
 async function doScan(token, action) {
   const before = S.me ? live() : null;
@@ -469,31 +444,18 @@ function renderResult() {
       <button class="btn big" data-act="openScan">${I.qr}Tekrar okut</button><button class="btn big ghost" data-act="empView" data-v="home">Ana sayfa</button></div>`;
     return;
   }
-  const m = S.me;
-  let title = '', rows = '';
-  if (r.action === 'break_end') {
-    const used = r.before ? r.before.thisBreak : 0;
-    title = 'İşe dönüşün kaydedildi';
-    rows = `<div class="row between"><span class="muted">Molaya çıkarken kalan</span><b class="num">${r.before && r.before.startLeft < 0 ? 'hak dolmuştu' : fmtMS(r.before ? r.before.startLeft : 0)}</b></div>
-      <div class="row between"><span class="muted">Bu molada geçen</span><b class="num" style="color:#B45309">−${fmtMS(used)}</b></div>
-      <div style="height:1px;background:var(--line)"></div>
-      <div class="row between"><b>Kalan mola hakkın</b><b class="num" style="font-size:28px;color:${r.after.left < 0 ? '#B91C1C' : 'var(--teal)'}">${r.after.left < 0 ? '+' + fmtMS(-r.after.left) + ' aşım' : fmtMS(r.after.left)}</b></div>`;
-  } else if (r.action === 'in') {
-    title = 'Mesaiye giriş kaydedildi';
-    rows = `<div class="row between"><span class="muted">Giriş saati</span><b class="num">${tClock(r.at)}</b></div>
-      ${m.is_late ? `<div class="row between"><span class="muted">Gecikme</span><b style="color:var(--orange)">${m.late_min} dk</b></div>` : ''}
-      <div class="row between"><span class="muted">Bugünkü mola hakkın</span><b class="num">${fmtMS(r.after.left)}</b></div>`;
-  } else {
-    title = 'Mesai çıkışı kaydedildi';
-    rows = `<div class="row between"><span class="muted">Bugün çalışma</span><b class="num">${fmtHM(r.after.worked)}</b></div>
-      <div class="row between"><span class="muted">Toplam mola</span><b class="num" style="color:${r.after.left < 0 ? '#B91C1C' : 'inherit'}">${fmtMin(r.after.brk)}</b></div>`;
-  }
+  const used = r.before ? r.before.thisBreak : 0;
   app.innerHTML = `<div class="phone" style="background:#fff">
     <div class="col grow" style="justify-content:center;align-items:center;text-align:center;gap:18px">
       <span style="width:72px;height:72px;border-radius:36px;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center">${I.check}</span>
-      <h1 class="h1">${title}</h1>
-      <div class="card col" style="width:100%;background:var(--bg);text-align:left;gap:12px">${rows}</div>
-      ${r.action === 'break_end' ? '<p class="small muted" style="margin:0">Sonraki molanda geri sayım bu süreden başlar.</p>' : ''}
+      <h1 class="h1">Moladan dönüşün kaydedildi</h1>
+      <div class="card col" style="width:100%;background:var(--bg);text-align:left;gap:12px">
+        <div class="row between"><span class="muted">Molaya çıkarken kalan</span><b class="num">${r.before && r.before.startLeft < 0 ? 'hak dolmuştu' : fmtMS(r.before ? r.before.startLeft : 0)}</b></div>
+        <div class="row between"><span class="muted">Bu molada geçen</span><b class="num" style="color:#B45309">−${fmtMS(used)}</b></div>
+        <div style="height:1px;background:var(--line)"></div>
+        <div class="row between"><b>Kalan mola hakkın</b><b class="num" style="font-size:28px;color:${r.after.left < 0 ? '#B91C1C' : 'var(--teal)'}">${r.after.left < 0 ? '+' + fmtMS(-r.after.left) + ' aşım' : fmtMS(r.after.left)}</b></div>
+      </div>
+      <p class="small muted" style="margin:0">Sonraki molanda geri sayım bu süreden başlar.</p>
     </div>
     <button class="btn big" data-act="empView" data-v="home">Ana sayfaya dön</button>
   </div>`;
@@ -513,16 +475,16 @@ function teamLive(r) {
 }
 function renderAdmin() {
   stopScanner();
-  const tabs = [['live', 'Canlı durum'], ['reports', 'Raporlar'], ['leaves', 'İzinler'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
+  const tabs = [['live', 'Canlı mola'], ['reports', 'Raporlar'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
   const unread = S.adminNotifs.filter((n) => !n.read_at).length;
   app.innerHTML = `
   <header class="top"><div class="wrap row between" style="flex-wrap:wrap">
     <div class="row"><div style="width:40px;height:40px;border-radius:12px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center">${I.logo}</div>
-      <div class="col" style="gap:0"><b>Personel Takip</b><span class="small muted">${esc(S.me.company.name)}</span></div></div>
+      <div class="col" style="gap:0"><b>Mola Takip</b><span class="small muted">${esc(S.me.company.name)}</span></div></div>
     <nav class="tabs" aria-label="Yönetici menüsü">${tabs.map(([k, t]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" aria-current="${S.tab === k ? 'page' : 'false'}">${t}</button>`).join('')}</nav>
     <div class="row">
       <button class="iconbtn" data-act="tab" data-v="live" aria-label="Uyarılar, ${unread} okunmamış">${I.bell}${unread ? `<span class="dot-badge">${unread}</span>` : ''}</button>
-      <button class="btn sm ghost" data-act="toEmployee">Kendi mesaim</button>
+      <button class="btn sm ghost" data-act="toEmployee">Kendi molam</button>
       <button class="btn sm ghost" data-act="logout">Çıkış</button>
     </div>
   </div></header>
@@ -533,68 +495,53 @@ function renderAdminTab() {
   const box = document.getElementById('admin-main'); if (!box) return;
   if (S.tab === 'live') { box.innerHTML = liveHtml(); loadTeam(); }
   else if (S.tab === 'reports') { box.innerHTML = reportsHtml(); }
-  else if (S.tab === 'leaves') { box.innerHTML = '<p class="muted">Yükleniyor…</p>'; loadLeaves(); }
   else if (S.tab === 'staff') { box.innerHTML = '<p class="muted">Yükleniyor…</p>'; loadStaff(); }
   else if (S.tab === 'settings') { box.innerHTML = '<p class="muted">Yükleniyor…</p>'; loadSettings(); }
 }
 
 // canlı durum
 function liveHtml() {
-  const c = S.me.company;
   const team = S.team.map((r) => ({ r, L: teamLive(r) }));
   const cnt = (f) => team.filter(f).length;
+  const allowMin = team[0] ? Math.round(team[0].r.allowance_sec / 60) : null;
   const defs = [
-    ['working', 'Çalışıyor', '#16A34A', (x) => x.r.status === 'working', 'Şu an mesaide'],
-    ['break', 'Molada', '#D97706', (x) => x.r.status === 'break', 'Anlık molada'],
-    ['leave', 'İzinli', '#2563EB', (x) => x.r.status === 'leave', 'İzin / rapor'],
-    ['absent', 'Gelmedi', '#DC2626', (x) => x.r.status === 'absent', 'Giriş kaydı yok'],
-    ['late', 'Geç geldi', '#EA580C', (x) => x.r.is_late, `${c.late_tolerance_min} dk tolerans sonrası`],
-    ['over', 'Fazla mola', '#B91C1C', (x) => x.L.over, 'Günlük hakkı aşan'],
-    ['not_yet', 'Henüz gelmedi', '#9CA3AF', (x) => x.r.status === 'not_yet', 'Saat dolmadı'],
-    ['done', 'Çıktı', '#6B7280', (x) => x.r.status === 'done', 'Mesaisini bitirdi']
+    ['break', 'Şu an molada', '#D97706', (x) => x.r.status === 'break', 'Geri sayım çalışıyor'],
+    ['idle', 'İşte', '#16A34A', (x) => x.r.status !== 'break', 'Molada değil'],
+    ['over', 'Fazla mola', '#B91C1C', (x) => x.L.over, 'Bugün hakkını aşan'],
+    ['all', 'Toplam çalışan', '#6B7280', () => true, 'Mola takibi açık']
   ];
-  const f = defs.find((d) => d[0] === S.filter);
-  const rows = team.filter((x) => !f || f[3](x));
-  const onBreak = team.filter((x) => x.r.status === 'break');
+  const f = defs.find((d) => d[0] === S.filter && d[0] !== 'all');
+  const rows = team.filter((x) => !f || f[3](x)).sort((a, b) => (b.r.status === 'break') - (a.r.status === 'break') || b.L.brk - a.L.brk);
   return `
     <div class="row between" style="flex-wrap:wrap">
-      <div class="col" style="gap:4px"><h1 class="h1">Bugün</h1><span class="small muted">${esc(todayLong())} · Mesai ${esc(String(c.shift_start).slice(0, 5))}–${esc(String(c.shift_end).slice(0, 5))} · Tolerans ${c.late_tolerance_min} dk</span></div>
+      <div class="col" style="gap:4px"><h1 class="h1">Bugün</h1><span class="small muted">${esc(todayLong())}${allowMin !== null ? ` · Günlük mola hakkı ${allowMin} dk` : ''}</span></div>
       <span class="row small muted" style="gap:8px"><span style="width:8px;height:8px;border-radius:4px;background:#16A34A"></span>Canlı · <b class="num" id="lv-clock" style="color:var(--ink)"></b></span>
     </div>
     <div class="tiles">${defs.map((d) => `<button class="tile ${S.filter === d[0] ? 'on' : ''}" data-act="filter" data-v="${d[0]}" aria-pressed="${S.filter === d[0]}"><span class="l"><i style="background:${d[2]}"></i>${d[1]}</span><span class="n num">${cnt(d[3])}</span><span class="xs muted">${d[4]}</span></button>`).join('')}</div>
     <div class="split">
       <section class="main card" style="padding:0" aria-label="Çalışanlar">
         <div class="row between" style="padding:16px 20px 8px;flex-wrap:wrap"><h2 class="h2">Çalışanlar · ${f ? f[1] : 'Tümü'} (${rows.length})</h2>
-          ${S.filter !== 'all' ? '<button class="btn sm ghost" data-act="filter" data-v="all">Filtreyi kaldır</button>' : ''}</div>
-        <div class="tbl-wrap"><table class="tbl">
-          <thead><tr><th scope="col" style="padding-left:20px">Çalışan</th><th scope="col">Durum</th><th scope="col">Giriş</th><th scope="col">Çalışma</th><th scope="col">Mola</th><th scope="col">Not</th><th scope="col" style="text-align:right;padding-right:20px">İşlem</th></tr></thead>
+          ${f ? '<button class="btn sm ghost" data-act="filter" data-v="all">Filtreyi kaldır</button>' : ''}</div>
+        <div class="tbl-wrap"><table class="tbl" style="min-width:680px">
+          <thead><tr><th scope="col" style="padding-left:20px">Çalışan</th><th scope="col">Durum</th><th scope="col">Bugünkü mola</th><th scope="col">Kalan hak</th><th scope="col">Mola sayısı</th><th scope="col" style="text-align:right;padding-right:20px">İşlem</th></tr></thead>
           <tbody>${rows.map(({ r, L }) => {
             const pct = Math.min(100, L.brk / Math.max(1, r.allowance_sec) * 100);
-            const notes = [];
-            if (r.is_late) notes.push(`<span style="color:var(--orange)">${r.late_min} dk geç</span>`);
-            if (L.over) notes.push(`<b style="color:#B91C1C">Mola ${Math.ceil(-L.left / 60)} dk aşıldı</b>`);
-            if (r.leave_kind) notes.push(esc(r.leave_kind));
-            const present = ['working', 'break', 'done'].includes(r.status);
             return `<tr>
               <td style="padding-left:20px"><div class="row" style="gap:10px"><span class="av">${esc(initials(r.full_name))}</span><div class="col" style="gap:0"><b>${esc(r.full_name)}</b><span class="xs muted">${esc(r.contact || '')}</span></div></div></td>
-              <td>${r.status === 'break' ? `<span class="chip st-break"><i></i>Molada · <span class="num" data-live="since" data-since="${esc(r.break_since)}"></span></span>` : chip(r.status)}</td>
-              <td class="num" style="${r.is_late ? 'color:var(--orange);font-weight:600' : ''}">${present ? tClock(r.first_in) : '—'}</td>
-              <td class="num">${present ? `<span data-live="work" data-u="${r.user_id}">${fmtHM(L.worked)}</span>` : '—'}</td>
+              <td>${r.status === 'break' ? `<span class="chip st-break"><i></i>Molada · <span class="num" data-live="since" data-since="${esc(r.break_since)}"></span></span>` : chip('working', 'İşte')}</td>
               <td><div class="row" style="gap:8px"><span class="mbar"><div data-live="mbar" data-u="${r.user_id}" style="width:${pct}%;background:${L.over ? '#DC2626' : L.left < 300 ? '#EA580C' : '#0F766E'}"></div></span><span class="num" data-live="brk" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(L.brk)}</span><span class="xs muted">/ ${Math.round(r.allowance_sec / 60)}</span></div></td>
-              <td class="small">${notes.join(' · ') || '<span class="muted">—</span>'}</td>
+              <td class="num" data-live="leftlbl" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : fmtMS(L.left)}</td>
+              <td class="num">${r.breaks || 0}</td>
               <td style="text-align:right;padding-right:20px;white-space:nowrap">
-                <button class="btn sm ${L.over || r.is_late || r.status === 'absent' ? '' : 'ghost'}" data-act="warn" data-u="${r.user_id}">Uyar</button>
+                <button class="btn sm ${L.over ? '' : 'ghost'}" data-act="warn" data-u="${r.user_id}">Uyar</button>
                 <button class="btn sm ghost" data-act="manual" data-u="${r.user_id}">Düzelt</button>
               </td></tr>`;
-          }).join('') || `<tr><td colspan="7" style="padding:24px 20px" class="muted">${S.team.length ? 'Bu filtrede kimse yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki davet kodunu paylaş.'}</td></tr>`}</tbody>
+          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${S.team.length ? 'Bu filtrede kimse yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki davet kodunu paylaş.'}</td></tr>`}</tbody>
         </table></div>
       </section>
       <aside class="side">
-        <section class="card col" aria-label="Şu an moladakiler"><h2 class="h2">Şu an moladakiler</h2>
-          ${onBreak.map(({ r, L }) => `<div class="row between"><div class="col" style="gap:0"><b class="small">${esc(r.full_name)}</b><span class="xs muted" data-live="leftlbl" data-u="${r.user_id}">${L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : 'Kalan hak ' + fmtMS(L.left)}</span></div><span class="num" style="font-size:20px;font-weight:700" data-live="since" data-since="${esc(r.break_since)}"></span></div>`).join('') || '<span class="small muted">Şu an molada kimse yok.</span>'}
-        </section>
         <section class="card col" aria-label="Uyarılar"><div class="row between"><h2 class="h2">Uyarılar</h2>${S.adminNotifs.some((n) => !n.read_at) ? '<button class="btn sm ghost" data-act="readAll">Okundu yap</button>' : ''}</div>
-          ${S.adminNotifs.slice(0, 15).map((n) => `<div class="alert ${n.kind === 'late' || n.kind === 'absent' ? 'w' : n.kind === 'overdue' ? '' : 'i'}" style="${n.read_at ? 'opacity:.65' : ''}"><i></i><div class="col" style="gap:2px"><b class="small">${esc(n.title)}</b><span class="small">${esc(n.body || '')}</span><span class="xs muted">${new Date(n.created_at).toLocaleString('tr-TR', { timeZone: tz(), hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</span></div></div>`).join('') || '<span class="small muted">Uyarı yok.</span>'}
+          ${S.adminNotifs.slice(0, 15).map((n) => `<div class="alert ${n.kind === 'overdue' ? '' : 'i'}" style="${n.read_at ? 'opacity:.65' : ''}"><i></i><div class="col" style="gap:2px"><b class="small">${esc(n.title)}</b><span class="small">${esc(n.body || '')}</span><span class="xs muted">${new Date(n.created_at).toLocaleString('tr-TR', { timeZone: tz(), hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</span></div></div>`).join('') || '<span class="small muted">Uyarı yok. Biri mola hakkını aşınca burada görünür.</span>'}
         </section>
       </aside>
     </div>`;
@@ -633,7 +580,7 @@ function tickAdmin() {
     if (e.dataset.live === 'brk') { e.textContent = fmtMin(L.brk); e.style.color = L.over ? '#B91C1C' : ''; e.style.fontWeight = L.over ? '700' : ''; }
     else if (e.dataset.live === 'work') e.textContent = fmtHM(L.worked);
     else if (e.dataset.live === 'mbar') { e.style.width = Math.min(100, L.brk / Math.max(1, r.allowance_sec) * 100) + '%'; e.style.background = L.over ? '#DC2626' : L.left < 300 ? '#EA580C' : '#0F766E'; }
-    else e.textContent = L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : 'Kalan hak ' + fmtMS(L.left);
+    else { e.textContent = L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : fmtMS(L.left); e.style.color = L.over ? '#B91C1C' : ''; e.style.fontWeight = L.over ? '700' : ''; }
   });
 }
 
@@ -650,7 +597,7 @@ function modal(html, onSubmit) {
 }
 function warnModal(uid) {
   const r = S.team.find((x) => x.user_id === uid) || S.staff.find((x) => x.id === uid) || {}; const L = r.status ? teamLive(r) : null;
-  const def = L && L.over ? 'Günlük mola hakkını aştın, lütfen işe dön.' : r.is_late ? 'Bugün geç giriş yaptın, lütfen mesai saatine dikkat et.' : r.status === 'absent' ? 'Bugün giriş kaydın yok. Lütfen bilgi ver.' : 'Lütfen mola ve mesai saatlerine dikkat et.';
+  const def = L && L.over ? 'Günlük mola hakkını aştın, lütfen işe dön.' : 'Lütfen mola sürelerine dikkat et.';
   modal(`<h2 class="h2">${esc(r.full_name || '')} — uyarı gönder</h2><label class="f">Mesaj<textarea class="inp" name="body" rows="3" style="height:auto;padding:12px">${esc(def)}</textarea></label><span class="xs muted">Çalışanın uygulamasında bildirim olarak görünür.</span>`, async (f) => {
     const { error } = await S.sb.rpc('send_warning', { p_user: uid, p_body: f.body });
     if (error) { toast(errMsg(error)); return false; }
@@ -662,7 +609,7 @@ function manualModal(uid) {
   const t = new Date(now()); const v = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
   modal(`<h2 class="h2">${esc(r.full_name || '')} — elle kayıt ekle</h2>
     <span class="small muted">QR okutmayı unutan çalışan için bugüne kayıt ekler.</span>
-    <label class="f">İşlem<select class="inp" name="kind"><option value="in">Mesai girişi</option><option value="break_start">Molaya çıkış</option><option value="break_end">Moladan dönüş</option><option value="out">Mesai çıkışı</option></select></label>
+    <label class="f">İşlem<select class="inp" name="kind">${r.status === 'break' ? '<option value="break_end">Moladan dönüş</option><option value="break_start">Molaya çıkış</option>' : '<option value="break_start">Molaya çıkış</option><option value="break_end">Moladan dönüş</option>'}</select></label>
     <label class="f">Saat<input class="inp" type="time" name="time" value="${v}" required></label>
     <label class="f">Not<input class="inp" name="note" placeholder="Örn. QR okutmayı unuttu"></label>`, async (f) => {
     const [h, m] = String(f.time).split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0);
@@ -688,26 +635,20 @@ function reportsHtml() {
 function reportTables(rows) {
   const by = {};
   rows.forEach((r) => {
-    const p = by[r.user_id] || (by[r.user_id] = { name: r.full_name, worked: 0, brk: 0, overDays: 0, overMin: 0, late: 0, lateMin: 0, absent: 0, leave: 0, days: 0 });
-    p.worked += r.worked_sec; p.brk += r.break_sec;
-    if (r.worked_sec || r.break_sec) p.days++;
+    const p = by[r.user_id] || (by[r.user_id] = { name: r.full_name, brk: 0, n: 0, days: 0, overDays: 0, overMin: 0 });
+    p.brk += r.break_sec; p.n += r.breaks || 0; if (r.break_sec) p.days++;
     if (r.break_sec > r.allowance_sec) { p.overDays++; p.overMin += (r.break_sec - r.allowance_sec) / 60; }
-    if (r.is_late) { p.late++; p.lateMin += r.late_min; }
-    if (r.status === 'absent') p.absent++;
-    if (r.status === 'leave') p.leave++;
   });
-  const sum = Object.values(by).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-  return `<section class="card" style="padding:0"><h2 class="h2" style="padding:16px 20px 6px">Özet</h2><div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th style="padding-left:20px">Çalışan</th><th>Gün</th><th>Toplam çalışma</th><th>Toplam mola</th><th>Fazla mola</th><th>Geç gelme</th><th>Gelmedi</th><th>İzin</th></tr></thead>
-    <tbody>${sum.map((p) => `<tr><td style="padding-left:20px"><b>${esc(p.name)}</b></td><td class="num">${p.days}</td><td class="num">${fmtHM(p.worked)}</td><td class="num">${fmtHM(p.brk)}</td>
-      <td class="num" style="${p.overDays ? 'color:#B91C1C;font-weight:700' : ''}">${p.overDays ? `${p.overDays} gün · ${Math.round(p.overMin)} dk` : '—'}</td>
-      <td class="num" style="${p.late ? 'color:var(--orange);font-weight:600' : ''}">${p.late ? `${p.late} gün · ${p.lateMin} dk` : '—'}</td>
-      <td class="num" style="${p.absent ? 'color:#B91C1C' : ''}">${p.absent || '—'}</td><td class="num">${p.leave || '—'}</td></tr>`).join('')}</tbody></table></div></section>
-    <section class="card" style="padding:0;margin-top:20px"><h2 class="h2" style="padding:16px 20px 6px">Günlük detay</h2><div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th style="padding-left:20px">Tarih</th><th>Çalışan</th><th>Durum</th><th>Giriş</th><th>Çıkış</th><th>Çalışma</th><th>Mola</th><th>Not</th></tr></thead>
-    <tbody>${rows.filter((r) => r.status !== 'off').map((r) => { const over = r.break_sec > r.allowance_sec; return `<tr><td style="padding-left:20px" class="num">${esc(tDate(r.day))}</td><td>${esc(r.full_name)}</td><td>${chip(r.status === 'working' || r.status === 'break' ? 'done' : r.status, r.status === 'working' || r.status === 'break' ? 'Mesaide' : null)}</td>
-      <td class="num" style="${r.is_late ? 'color:var(--orange);font-weight:600' : ''}">${tClock(r.first_in)}</td><td class="num">${tClock(r.last_out)}</td><td class="num">${r.worked_sec ? fmtHM(r.worked_sec) : '—'}</td>
-      <td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${r.break_sec ? fmtMin(r.break_sec) : '—'}</td><td class="small">${[r.is_late ? r.late_min + ' dk geç' : '', over ? 'mola ' + Math.ceil((r.break_sec - r.allowance_sec) / 60) + ' dk aşım' : '', r.leave_kind || ''].filter(Boolean).join(' · ')}</td></tr>`; }).join('')}</tbody></table></div></section>`;
+  const sum = Object.values(by).sort((a, b) => b.overMin - a.overMin || a.name.localeCompare(b.name, 'tr'));
+  const det = rows.filter((r) => r.break_sec || r.breaks);
+  return `<section class="card" style="padding:0"><h2 class="h2" style="padding:16px 20px 6px">Özet</h2><div class="tbl-wrap"><table class="tbl" style="min-width:600px">
+    <thead><tr><th style="padding-left:20px">Çalışan</th><th>Mola yapılan gün</th><th>Mola sayısı</th><th>Toplam mola</th><th>Günlük ortalama</th><th>Fazla mola</th></tr></thead>
+    <tbody>${sum.map((p) => `<tr><td style="padding-left:20px"><b>${esc(p.name)}</b></td><td class="num">${p.days}</td><td class="num">${p.n}</td><td class="num">${fmtHM(p.brk)}</td><td class="num">${p.days ? fmtMin(p.brk / p.days) : '—'}</td>
+      <td class="num" style="${p.overDays ? 'color:#B91C1C;font-weight:700' : ''}">${p.overDays ? `${p.overDays} gün · toplam ${Math.round(p.overMin)} dk` : '—'}</td></tr>`).join('')}</tbody></table></div></section>
+    <section class="card" style="padding:0;margin-top:20px"><h2 class="h2" style="padding:16px 20px 6px">Günlük detay</h2><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
+    <thead><tr><th style="padding-left:20px">Tarih</th><th>Çalışan</th><th>Mola sayısı</th><th>Toplam mola</th><th>Hak</th><th>Aşım</th></tr></thead>
+    <tbody>${det.map((r) => { const over = r.break_sec > r.allowance_sec; return `<tr><td style="padding-left:20px" class="num">${esc(tDate(r.day))}</td><td>${esc(r.full_name)}</td><td class="num">${r.breaks || 0}</td>
+      <td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(r.break_sec)}</td><td class="num">${Math.round(r.allowance_sec / 60)} dk</td><td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${over ? Math.ceil((r.break_sec - r.allowance_sec) / 60) + ' dk' : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted" style="padding:20px">Bu aralıkta mola kaydı yok.</td></tr>'}</tbody></table></div></section>`;
 }
 async function runReport(f) {
   const out = document.getElementById('report-out'); out.innerHTML = '<p class="muted">Hazırlanıyor…</p>';
@@ -718,15 +659,13 @@ async function runReport(f) {
 }
 function downloadCsv() {
   if (!S.report || !S.report.rows) return;
-  const head = ['Tarih', 'Çalışan', 'Durum', 'Giriş', 'Çıkış', 'Çalışma (dk)', 'Mola (dk)', 'Mola hakkı (dk)', 'Mola aşımı (dk)', 'Gecikme (dk)', 'İzin'];
-  const lines = [head].concat(S.report.rows.map((r) => [r.day, r.full_name, ST[r.status] || r.status, r.first_in ? tClock(r.first_in) : '', r.last_out ? tClock(r.last_out) : '',
-    Math.round(r.worked_sec / 60), Math.round(r.break_sec / 60), Math.round(r.allowance_sec / 60), Math.max(0, Math.ceil((r.break_sec - r.allowance_sec) / 60)), r.is_late ? r.late_min : 0, r.leave_kind || '']));
+  const head = ['Tarih', 'Çalışan', 'Mola sayısı', 'Toplam mola (dk)', 'Mola hakkı (dk)', 'Aşım (dk)'];
+  const lines = [head].concat(S.report.rows.filter((r) => r.break_sec || r.breaks).map((r) => [r.day, r.full_name, r.breaks || 0,
+    Math.round(r.break_sec / 60), Math.round(r.allowance_sec / 60), Math.max(0, Math.ceil((r.break_sec - r.allowance_sec) / 60))]));
   const csv = '\ufeff' + lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = `mesai-raporu_${S.report.from}_${S.report.to}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  a.download = `mola-raporu_${S.report.from}_${S.report.to}.csv`; document.body.appendChild(a); a.click(); a.remove();
 }
-
-// izinler
 async function loadStaffList() {
   const { data, error } = await S.sb.from('profiles').select('*').eq('company_id', S.me.company.id).order('full_name');
   if (error) throw error; S.staff = data; return data;
@@ -759,7 +698,7 @@ async function loadStaff() {
     const c = S.me.company;
     const { data: comp } = await S.sb.from('companies').select('*').eq('id', c.id).single();
     S.company = comp;
-    const inviteText = `${comp.name} mesai takip uygulamasına katıl:\n${BASE}\nKayıt olurken davet kodu: ${comp.invite_code}`;
+    const inviteText = `${comp.name} mola takip uygulamasına katıl:\n${BASE}\nKayıt olurken davet kodu: ${comp.invite_code}`;
     document.getElementById('admin-main').innerHTML = `<h1 class="h1">Çalışanlar</h1>
       <section class="card row between" style="flex-wrap:wrap;gap:16px">
         <div class="col" style="gap:4px"><span class="small muted">Davet kodu</span><span class="num" style="font-size:34px;font-weight:700;letter-spacing:3px">${esc(comp.invite_code)}</span>
@@ -771,11 +710,11 @@ async function loadStaff() {
         <td style="padding-left:20px"><input class="inp" name="full_name" value="${esc(p.full_name)}" aria-label="Ad soyad" style="height:40px;min-width:160px"></td>
         <td class="small">${esc(p.contact || '')}</td>
         <td><select class="inp" name="role" aria-label="Rol" style="height:40px;width:auto"><option value="employee" ${p.role === 'employee' ? 'selected' : ''}>Çalışan</option><option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Yönetici</option></select></td>
-        <td><label class="row small" style="gap:6px"><input type="checkbox" name="tracked" ${p.tracked ? 'checked' : ''}> Mesai takibi</label></td>
+        <td><label class="row small" style="gap:6px"><input type="checkbox" name="tracked" ${p.tracked ? 'checked' : ''}> Mola takibi</label></td>
         <td><label class="row small" style="gap:6px"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} ${p.id === S.me.user_id ? 'disabled' : ''}> Aktif</label></td>
         <td><input class="inp" type="number" min="0" max="600" name="break_allowance_min" value="${p.break_allowance_min ?? ''}" placeholder="Şirket: ${comp.break_allowance_min}" aria-label="Özel mola hakkı" style="height:40px;width:130px"></td>
         <td style="text-align:right;padding-right:20px"><button class="btn sm" data-act="saveStaff" data-v="${p.id}">Kaydet</button></td></tr>`).join('')}</tbody></table></div></section>
-      <p class="small muted" style="margin:0">“Mesai takibi” kapalı olanlar (örneğin yöneticiler) canlı durumda ve raporlarda görünmez. Pasif yapılan çalışan giriş yapsa da QR okutamaz.</p>`;
+      <p class="small muted" style="margin:0">“Mola takibi” kapalı olanlar (örneğin yöneticiler) canlı ekranda ve raporlarda görünmez. Özel mola hakkı boşsa şirketin günlük mola hakkı geçerlidir. Pasif yapılan çalışan QR okutamaz.</p>`;
   } catch (e) { document.getElementById('admin-main').innerHTML = `<div class="err">${esc(errMsg(e))}</div>`; }
 }
 async function saveStaff(id) {
@@ -803,17 +742,12 @@ async function loadSettings() {
     const t5 = (v) => String(v).slice(0, 5);
     document.getElementById('admin-main').innerHTML = `<h1 class="h1">Ayarlar</h1>
       <form class="card col" data-form="settings" style="gap:16px">
-        <h2 class="h2">Mesai ve mola kuralları</h2>
+        <h2 class="h2">Mola kuralları</h2>
         <div class="formgrid">
           <label class="f">Şirket adı<input class="inp" name="name" value="${esc(comp.name)}" required></label>
-          <label class="f">Mesai başlangıcı<input class="inp" type="time" name="shift_start" value="${t5(comp.shift_start)}" required></label>
-          <label class="f">Mesai bitişi<input class="inp" type="time" name="shift_end" value="${t5(comp.shift_end)}" required></label>
-          <label class="f">Geç kalma toleransı (dk)<input class="inp" type="number" min="0" max="240" name="late_tolerance_min" value="${comp.late_tolerance_min}" required></label>
-          <label class="f">Günlük mola hakkı (dk)<input class="inp" type="number" min="0" max="600" name="break_allowance_min" value="${comp.break_allowance_min}" required></label>
-          <label class="f">Bu saate kadar gelmeyen “gelmedi” sayılır<input class="inp" type="time" name="absent_after" value="${t5(comp.absent_after)}" required></label>
+          <label class="f">Günlük mola hakkı (dakika)<input class="inp" type="number" min="1" max="600" name="break_allowance_min" value="${comp.break_allowance_min}" required></label>
         </div>
-        <fieldset style="border:0;padding:0;margin:0"><legend class="small" style="font-weight:600;margin-bottom:8px">Çalışma günleri</legend>
-          <div class="row" style="flex-wrap:wrap;gap:14px">${days.map((d, i) => `<label class="row small" style="gap:6px"><input type="checkbox" name="wd" value="${i + 1}" ${comp.work_days.includes(i + 1) ? 'checked' : ''}>${d}</label>`).join('')}</div></fieldset>
+        <p class="small muted" style="margin:0">Her çalışanın günlük toplam mola süresi. Gün içinde birden fazla molaya bölebilir; her molada kalan süreden geri sayılır. Gece yarısı sıfırlanır. Belirli bir çalışana farklı süre vermek için “Çalışanlar” sekmesindeki “Özel mola hakkı”nı kullan.</p>
         <div><button class="btn" type="submit">Kaydet</button></div>
       </form>
       <section class="card col" style="gap:12px">
@@ -829,7 +763,7 @@ async function loadSettings() {
             <img src="logo.png" alt="${esc(comp.name)} logosu" style="max-width:200px;max-height:110px;object-fit:contain" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:this.alt.replace(' logosu',''),style:'font-size:22px;letter-spacing:1px'}))">
             <b style="font-size:30px;letter-spacing:4px">MOLA QR</b>
             <div style="width:240px">${qrSvg(staticUrl)}</div>
-            <span class="small">Giriş · Mola · Dönüş · Çıkış için<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
+            <span class="small">Molaya çıkarken ve dönerken<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
           <div><button class="btn line" data-act="printQr">Yazdır / PDF indir</button><span class="xs muted" style="margin-left:10px">PDF için yazıcı olarak “PDF olarak kaydet”i seç</span></div>` : ''}
       </section>
       <section class="card col" style="gap:12px">
@@ -846,7 +780,7 @@ async function kioskStart(q) {
   stopKiosk();
   const c = q.get('c'), k = q.get('k');
   S.kiosk = { c, k, exp: 30, at: Date.now() };
-  app.innerHTML = `<div class="kiosk"><h1 id="k-name" style="margin:0;font-size:clamp(22px,4vmin,40px)">QR yükleniyor…</h1><div class="qr" id="k-qr"></div><div class="kbar"><div id="k-bar" style="width:100%"></div></div><div class="clock num" id="k-clock"></div><p style="margin:0;color:#B7BCC7;font-size:clamp(14px,2.4vmin,22px)">Giriş, mola ve çıkış için uygulamadan okutun</p></div>`;
+  app.innerHTML = `<div class="kiosk"><h1 id="k-name" style="margin:0;font-size:clamp(22px,4vmin,40px)">QR yükleniyor…</h1><div class="qr" id="k-qr"></div><div class="kbar"><div id="k-bar" style="width:100%"></div></div><div class="clock num" id="k-clock"></div><p style="margin:0;color:#B7BCC7;font-size:clamp(14px,2.4vmin,22px)">Molaya çıkarken ve dönerken uygulamadan okutun</p></div>`;
   try { if (navigator.wakeLock) S.kiosk.lock = await navigator.wakeLock.request('screen'); } catch (_) {}
   const clock = () => {
     const e = document.getElementById('k-clock'); if (!e || !S.kiosk) return;
@@ -948,7 +882,7 @@ const actions = {
       </div>
       <div class="qr">${qrSvg(a.dataset.qr)}</div>
       <div style="display:flex;flex-direction:column;gap:5mm;align-items:center">
-        <div class="steps"><span>Giriş</span><span>Mola</span><span>Dönüş</span><span>Çıkış</span></div>
+        <div class="steps"><span>Molaya çıkarken okut</span><span>Dönünce okut</span></div>
         <p>Uygulamada <b>QR okut</b>'a dokunun ve bu kodu okutun.</p>
       </div>
     </div><script>window.onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);
@@ -975,10 +909,9 @@ app.addEventListener('submit', async (e) => {
     if (error) return toast(errMsg(error)); toast('İzin eklendi'); return loadLeaves();
   }
   if (k === 'settings') {
-    const wd = [...form.querySelectorAll('[name=wd]:checked')].map((x) => Number(x.value));
-    const { error } = await S.sb.from('companies').update({ name: f.name, shift_start: f.shift_start, shift_end: f.shift_end, late_tolerance_min: Number(f.late_tolerance_min), break_allowance_min: Number(f.break_allowance_min), absent_after: f.absent_after, work_days: wd }).eq('id', S.me.company.id);
+    const { error } = await S.sb.from('companies').update({ name: f.name, break_allowance_min: Number(f.break_allowance_min) }).eq('id', S.me.company.id);
     if (error) return toast(errMsg(error));
-    toast('Ayarlar kaydedildi'); await refreshMe(); return;
+    toast('Ayarlar kaydedildi'); await refreshMe(); loadSettings(); return;
   }
 });
 
