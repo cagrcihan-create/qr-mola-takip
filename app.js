@@ -192,14 +192,8 @@ function renderAuth() {
       <button type="button" role="tab" aria-selected="${reg}" class="${reg ? 'on' : ''}" data-act="authTab" data-v="register">Kayıt ol</button>
     </div>
     <form class="col" style="gap:14px" data-form="auth" novalidate>
-      <div class="seg" aria-label="Yöntem">
-        <button type="button" class="${a.method === 'email' ? 'on' : ''}" data-act="authMethod" data-v="email">E-posta</button>
-        <button type="button" class="${a.method === 'phone' ? 'on' : ''}" data-act="authMethod" data-v="phone">Telefon</button>
-      </div>
       ${reg ? `<label class="f">Ad soyad<input class="inp" name="full_name" autocomplete="name" required placeholder="Ayşe Yılmaz"></label>` : ''}
-      ${a.method === 'email'
-        ? `<label class="f">E-posta<input class="inp" name="email" type="email" autocomplete="email" required placeholder="ornek@sirket.com"></label>`
-        : `<label class="f">Telefon<input class="inp" name="phone" type="tel" autocomplete="tel" inputmode="tel" required placeholder="05XX XXX XX XX"></label>`}
+      <label class="f">E-posta<input class="inp" name="email" type="email" autocomplete="email" required placeholder="ornek@sirket.com"></label>
       <label class="f">Şifre<input class="inp" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required minlength="6" placeholder="En az 6 karakter"></label>
       ${reg ? `<p class="xs muted" style="margin:0">Kayıt olunca çalışan olarak eklenirsin. Yönetici yetkisini yöneticin verir.</p>` : ''}
       ${a.err ? `<div class="err" role="alert">${esc(a.err)}</div>` : ''}
