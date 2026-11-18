@@ -95,6 +95,7 @@ async function route() {
   const h = location.hash || '';
   if (h.startsWith('#/kiosk')) return kioskStart(new URLSearchParams(h.split('?')[1] || ''));
   stopKiosk();
+  if (h.startsWith('#/kayit')) { authState.tab = 'register'; history.replaceState(null, '', BASE); }
   const m = h.match(/^#\/s\/(.+)$/);
   if (m) { S.pendingToken = decodeURIComponent(m[1]); history.replaceState(null, '', BASE); }
   const { data } = await S.sb.auth.getSession();
@@ -714,10 +715,10 @@ async function loadStaff() {
     const c = S.me.company;
     const { data: comp } = await S.sb.from('companies').select('*').eq('id', c.id).single();
     S.company = comp;
-    const inviteText = `${comp.name} mola takip uygulaması:\n${BASE}\nBağlantıyı aç, “Kayıt ol”a dokun ve e-postanla kayıt ol.`;
+    const inviteText = `${comp.name} mola takip uygulaması:\n${BASE}#/kayit\nBağlantıyı aç, “Kayıt ol”a dokun ve e-postanla kayıt ol.`;
     document.getElementById('admin-main').innerHTML = `<h1 class="h1">Çalışanlar</h1>
       <section class="card row between" style="flex-wrap:wrap;gap:16px">
-        <div class="col" style="gap:4px;max-width:560px"><span class="small muted">Uygulama bağlantısı</span><b style="font-size:17px;word-break:break-all">${esc(BASE)}</b>
+        <div class="col" style="gap:4px;max-width:560px"><span class="small muted">Uygulama bağlantısı</span><b style="font-size:17px;word-break:break-all">${esc(BASE)}#/kayit</b>
         <span class="small muted">Çalışanlar bu bağlantıdan e-postasıyla kayıt olur ve otomatik olarak <b>çalışan</b> olarak aşağıdaki listeye eklenir. Birini yönetici yapmak için “Rol”ü değiştirip Kaydet'e bas.</span></div>
         <div class="row" style="flex-wrap:wrap"><button class="btn" data-act="share" data-v="${esc(inviteText)}">Bağlantıyı paylaş</button><button class="btn line" data-act="copy" data-v="${esc(inviteText)}">Kopyala</button></div>
       </section>
