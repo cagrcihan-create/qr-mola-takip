@@ -63,6 +63,46 @@ function notifyDevice(title, body) {
   } catch (_) {}
 }
 
+// ------------------------------------------------------------------ ses
+let actx = null, voiceUnlocked = false;
+const soundOn = () => localStorage.getItem('qrm_sound') !== '0';
+function unlockAudio() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    if (!voiceUnlocked && 'speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); voiceUnlocked = true; }
+  } catch (_) {}
+}
+const SND = {
+  ok: [[880, 110, 50], [1320, 170, 0]],
+  warn: [[660, 220, 140], [660, 220, 0]],
+  alarm: [[988, 260, 90], [740, 260, 90], [988, 260, 90], [740, 260, 0]]
+};
+function beep(kind, force) {
+  if (!force && !soundOn()) return;
+  try {
+    unlockAudio(); if (!actx) return;
+    let t = actx.currentTime + 0.02;
+    (SND[kind] || SND.ok).forEach(([f, d, g]) => {
+      const o = actx.createOscillator(), gn = actx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.5, t + 0.02); gn.gain.exponentialRampToValueAtTime(0.0001, t + d / 1000);
+      o.connect(gn); gn.connect(actx.destination); o.start(t); o.stop(t + d / 1000 + 0.05);
+      t += (d + g) / 1000;
+    });
+  } catch (_) {}
+}
+function say(text, force) {
+  if (!force && !soundOn()) return;
+  try {
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'tr-TR'; u.rate = 1;
+    const v = speechSynthesis.getVoices().find((x) => /^tr/i.test(x.lang)); if (v) u.voice = v;
+    speechSynthesis.cancel(); setTimeout(() => speechSynthesis.speak(u), 900);
+  } catch (_) {}
+}
+function alertSound(kind, text) { beep(kind); if (text) say(text); }
+
 // ------------------------------------------------------------------ durum
 const S = {
   sb: null, session: null, me: null, fetchedAt: 0, off: 0,
@@ -362,8 +402,9 @@ function tickEmployee() {
       if (a.dataset.h !== html) { a.innerHTML = html; a.dataset.h = html; }
     }
     const key = m.break_since;
-    if (warn && !S.marks[key + 'w']) { S.marks[key + 'w'] = 1; notifyDevice('Molan bitiyor', '5 dakikadan az kaldı.'); }
-    if (over && !S.marks[key + 'o']) { S.marks[key + 'o'] = 1; notifyDevice('Mola hakkın doldu', 'Lütfen QR okutup işe dön.'); }
+    if (warn && !S.marks[key + 'w']) { S.marks[key + 'w'] = 1; notifyDevice('Molan bitiyor', '5 dakikadan az kaldı.'); alertSound('warn', 'Molanın bitmesine beş dakika kaldı.'); }
+    if (over && !S.marks[key + 'o']) { S.marks[key + 'o'] = 1; notifyDevice('Mola hakkın doldu', 'Lütfen QR okutup işe dön.'); alertSound('alarm', 'Mola süren doldu. Lütfen işe dön.'); }
+    if (over && !S.marks[key + 'o5'] && -L.left >= 300) { S.marks[key + 'o5'] = 1; alertSound('alarm', 'Mola süreni beş dakika aştın.'); }
   }
 }
 
@@ -406,6 +447,8 @@ function renderProfileBody() {
   return `<h1 class="h1">Profil</h1>
     <div class="card col"><div class="row"><span class="av" style="width:48px;height:48px;font-size:16px">${esc(initials(m.full_name))}</span><div class="col" style="gap:2px"><b>${esc(m.full_name)}</b><span class="small muted">${esc(m.company.name)} · ${m.role === 'admin' ? 'Yönetici' : 'Çalışan'}</span></div></div>
     <span class="small muted">Günlük mola hakkı: ${Math.round(m.allowance_sec / 60)} dk</span></div>
+    <div class="card row between"><div class="col" style="gap:2px"><b>Sesli uyarılar</b><span class="small muted">Mola biterken ve uyarı gelince ses çalar, sesli okur</span></div>
+      <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="testSound">Dene</button><button class="btn sm ${soundOn() ? 'teal' : 'line'}" data-act="toggleSound" aria-pressed="${soundOn()}">${soundOn() ? 'Açık' : 'Kapalı'}</button></div></div>
     ${'Notification' in window && Notification.permission !== 'granted' ? `<button class="btn line" data-act="askNotif">${I.bell} Bildirimlere izin ver</button>` : ''}
     ${m.role === 'admin' ? `<button class="btn ghost" data-act="toAdmin">Yönetici paneline geç</button>` : ''}
     <button class="btn ghost" data-act="logout">Çıkış yap</button>
@@ -469,10 +512,13 @@ async function doScan(token, action) {
   app.innerHTML = '<div class="phone" style="justify-content:center;align-items:center"><p class="muted">Kaydediliyor…</p></div>';
   const { data, error } = await S.sb.rpc('scan', { p_token: token, p_action: action });
   if (error) {
+    beep('warn');
     S.view = 'result'; S.result = { error: errMsg(error) }; return renderEmployee();
   }
   setMe(data);
   S.chooseToken = null;
+  beep('ok');
+  say({ in: 'Hoş geldin. Giriş kaydedildi.', break_start: 'Mola başladı. İyi molalar.', break_end: 'Moladan dönüşün kaydedildi.', out: 'Çıkış kaydedildi. Görüşmek üzere.' }[action] || '');
   if (action === 'break_start') { S.view = 'home'; toast('Mola başladı. Geri sayım çalışıyor.'); return renderEmployee(); }
   const after = live();
   S.result = { action, before, after, at: new Date(now()).toISOString() };
@@ -540,6 +586,7 @@ function renderAdmin() {
     <nav class="tabs" aria-label="Yönetici menüsü">${tabs.map(([k, t]) => `<button class="${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" aria-current="${S.tab === k ? 'page' : 'false'}">${t}</button>`).join('')}</nav>
     <div class="row">
       <button class="iconbtn" data-act="tab" data-v="live" aria-label="Uyarılar, ${unread} okunmamış">${I.bell}${unread ? `<span class="dot-badge">${unread}</span>` : ''}</button>
+      <button class="btn sm ${soundOn() ? 'teal' : 'ghost'}" data-act="toggleSound" aria-pressed="${soundOn()}" title="Uyarı gelince sesli bildir">Ses: ${soundOn() ? 'Açık' : 'Kapalı'}</button>
       <button class="btn sm ghost" data-act="toEmployee">Kendi molam</button>
       <button class="btn sm ghost" data-act="logout">Çıkış</button>
     </div>
@@ -617,7 +664,11 @@ async function loadTeam(silent) {
   S.team = t.data || []; S.teamAt = Date.now();
   if (S.team[0] && S.team[0].server_now) S.off = new Date(S.team[0].server_now).getTime() - Date.now();
   if (!n.error) {
-    if (hadAny) n.data.filter((x) => !prevIds.has(x.id) && !x.read_at).forEach((x) => notifyDevice(x.title, x.body || ''));
+    if (hadAny) {
+      const fresh = n.data.filter((x) => !prevIds.has(x.id) && !x.read_at);
+      fresh.forEach((x) => notifyDevice(x.title, x.body || ''));
+      if (fresh.length) alertSound('alarm', fresh[0].title);
+    }
     S.adminNotifs = n.data;
   }
   if (S.tab === 'live' && document.getElementById('admin-main') && !document.querySelector('.modal-bg')) {
@@ -884,6 +935,7 @@ async function poll(force) {
       if (prevUnread !== null && S.me.unread > prevUnread) {
         const { data } = await S.sb.from('notifications').select('*').eq('user_id', S.me.user_id).is('read_at', null).order('created_at', { ascending: false }).limit(S.me.unread - prevUnread);
         (data || []).forEach((n) => notifyDevice(n.title, n.body || ''));
+        if ((data || []).length) alertSound('alarm', (data[0].kind === 'warning' ? 'Yöneticinden uyarı var. ' : '') + (data[0].body || data[0].title));
       }
       S.lastUnread = S.me.unread;
       if (prevStatus !== S.me.status || force) renderEmployee();
@@ -913,6 +965,8 @@ const actions = {
   manual: (b) => manualModal(b.dataset.u),
   readAll: async () => { await S.sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('user_id', S.me.user_id).is('read_at', null); await loadTeam(); renderAdmin(); },
   csv: downloadCsv,
+  toggleSound: () => { localStorage.setItem('qrm_sound', soundOn() ? '0' : '1'); if (soundOn()) { beep('ok'); say('Sesli uyarılar açık.'); } render(); },
+  testSound: () => { beep('alarm', true); say('Molanın bitmesine beş dakika kaldı.', true); },
   delLeave: async (b) => { const { error } = await S.sb.from('leaves').delete().eq('id', b.dataset.v); if (error) return toast(errMsg(error)); toast('İzin silindi'); loadLeaves(); },
   saveStaff: (b) => saveStaff(b.dataset.v),
   copy: async (b) => { try { await navigator.clipboard.writeText(b.dataset.v); toast('Kopyalandı'); } catch (_) { toast('Kopyalanamadı'); } },
@@ -948,6 +1002,7 @@ const actions = {
   rotate: async () => { if (!confirm('Kapı ekranı bağlantısı ve sabit QR yenilensin mi? Kapı ekranını yeni bağlantıyla tekrar açman gerekecek.')) return; const { error } = await S.sb.rpc('rotate_secrets'); if (error) return toast(errMsg(error)); toast('Yenilendi'); loadSettings(); }
 };
 app.addEventListener('click', (e) => {
+  unlockAudio();
   const b = e.target.closest('[data-act]'); if (!b || !app.contains(b)) return;
   const fn = actions[b.dataset.act]; if (!fn) return;
   if (b.tagName !== 'INPUT') e.preventDefault();
