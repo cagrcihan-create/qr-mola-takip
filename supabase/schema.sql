@@ -150,8 +150,7 @@ begin
   end if;
   loc := now() at time zone c.timezone;
   st := r.status;
-  -- sadece mola takibi: molada değilse 'off' (işte)
-  if st in ('working','done') then st := 'off'; end if;
+  -- durumlar: off (giriş yok), working (içeride), break (molada), done (çıkış yaptı)
   return query select p_day, st, r.first_in, r.worked_sec, r.break_sec,
     coalesce(p.break_allowance_min, c.break_allowance_min) * 60,
     r.break_since, r.breaks, lt, (r.first_in is not null and wd and lt > c.late_tolerance_min), lk, wd;
@@ -291,15 +290,17 @@ begin
 
   today := (now() at time zone c.timezone)::date;
   select * into d from _user_day(p.id, today);
-  if p_action not in ('break_start','break_end') then raise exception 'Geçersiz işlem';
+  if p_action not in ('in','break_start','break_end','out') then raise exception 'Geçersiz işlem';
+  elsif p_action = 'in' and d.status in ('working','break') then raise exception 'Zaten giriş yapmışsın';
   elsif p_action = 'break_start' and d.status = 'break' then raise exception 'Zaten moladasın';
   elsif p_action = 'break_end' and d.status <> 'break' then raise exception 'Şu an molada değilsin';
+  elsif p_action = 'out' and d.status not in ('working','break') then raise exception 'Önce giriş yapmalısın';
   end if;
 
   insert into events(company_id, user_id, kind, source) values (c.id, p.id, p_action, 'qr');
 
   select * into d2 from _user_day(p.id, today);
-  if p_action = 'break_end' and d.status = 'break' and d2.break_sec > d2.allowance_sec then
+  if p_action in ('break_end','out') and d.status = 'break' and d2.break_sec > d2.allowance_sec then
     perform _alert(c.id, 'overdue', p.id, d.break_since,
       'Mola hakkını aştın',
       'Bugün mola hakkını ' || ceil((d2.break_sec - d2.allowance_sec) / 60.0)::int || ' dk aştın.',
@@ -327,22 +328,27 @@ end $$;
 -- ---------------------------------------------------------------------
 -- YÖNETİCİ
 -- ---------------------------------------------------------------------
+drop function if exists public.team_today();
 create or replace function public.team_today()
 returns table(user_id uuid, full_name text, contact text, role text, status text, first_in timestamptz,
               worked_sec int, break_sec int, allowance_sec int, break_since timestamptz, breaks int,
-              late_min int, is_late boolean, leave_kind text, last_event_at timestamptz, server_now timestamptz)
+              late_min int, is_late boolean, leave_kind text, last_event_at timestamptz, server_now timestamptz,
+              last_out timestamptz)
 language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column
-declare cid uuid; today date;
+declare cid uuid; today date; tz text;
 begin
   if not is_admin() then raise exception 'Yetkin yok'; end if;
   cid := my_company();
   perform check_alerts(cid);
   today := _local_today(cid);
+  select timezone into tz from companies where id = cid;
   return query
     select p.id, p.full_name, p.contact, p.role, u.status, u.first_in, u.worked_sec, u.break_sec, u.allowance_sec,
            u.break_since, u.breaks, u.late_min, u.is_late, u.leave_kind,
-           (select max(e.at) from events e where e.user_id = p.id), now()
+           (select max(e.at) from events e where e.user_id = p.id), now(),
+           (select max(e.at) from events e where e.user_id = p.id and e.kind = 'out'
+              and e.at >= (today::timestamp at time zone tz))
     from profiles p cross join lateral _user_day(p.id, today) u
     where p.company_id = cid and p.active and p.tracked
     order by p.full_name;

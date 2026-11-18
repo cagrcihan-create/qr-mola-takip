@@ -34,7 +34,7 @@ const I = {
   warn: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
   logo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:26px;height:26px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM17 20h4v-3"/></svg>'
 };
-const ST = { working: 'İşte', break: 'Molada', leave: 'İşte', absent: 'İşte', done: 'İşte', not_yet: 'İşte', off: 'İşte' };
+const ST = { working: 'Çalışıyor', break: 'Molada', leave: 'İzinli', absent: 'Giriş yok', done: 'Çıkış yaptı', not_yet: 'Giriş yok', off: 'Giriş yok' };
 const chip = (st, text) => `<span class="chip st-${esc(st)}"><i></i>${esc(text || ST[st] || st)}</span>`;
 const KIND = { in: ['Mesai girişi', I.inn, 'var(--green-bg)', 'var(--green)'], break_start: ['Molaya çıktı', I.cup, 'var(--amber-bg)', 'var(--amber)'], break_end: ['Moladan döndü', I.cup, 'var(--amber-bg)', 'var(--amber)'], out: ['Mesai çıkışı', I.out, 'var(--soft)', '#3B414E'] };
 
@@ -145,7 +145,7 @@ function renderAuth() {
     <div class="col" style="gap:14px">
       <div style="width:56px;height:56px;border-radius:16px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center">${I.logo}</div>
       <div><h1 class="h1">${reg ? 'Hesap oluştur' : 'Giriş yap'}</h1>
-      <p class="muted" style="margin:6px 0 0;line-height:1.5">Molaya çıkarken ve dönerken QR okut, kalan mola süreni gör.</p></div>
+      <p class="muted" style="margin:6px 0 0;line-height:1.5">Giriş, mola ve çıkışta QR okut, kalan mola süreni gör.</p></div>
     </div>
     <div class="seg" role="tablist" aria-label="Giriş veya kayıt">
       <button type="button" role="tab" aria-selected="${!reg}" class="${!reg ? 'on' : ''}" data-act="authTab" data-v="login">Giriş</button>
@@ -272,7 +272,19 @@ function empNav() {
   const b = (v, ic, t, badge) => `<button class="${S.view === v ? 'on' : ''}" data-act="empView" data-v="${v}" aria-current="${S.view === v ? 'page' : 'false'}" style="position:relative">${ic}${t}${badge ? `<span class="dot-badge" style="top:0;right:12px">${badge}</span>` : ''}</button>`;
   return `<nav class="bottomnav" aria-label="Alt menü">${b('home', I.home, 'Ana sayfa')}${b('history', I.clock, 'Geçmiş')}${b('notifs', I.bell, 'Bildirimler', S.me.unread || '')}${b('profile', I.user, 'Profil')}</nav>`;
 }
-function scanLabel(st) { return st === 'break' ? 'QR okut · Moladan dön' : 'QR okut · Molaya çık'; }
+function scanLabel(st) {
+  if (st === 'break') return 'QR okut · Moladan dön';
+  if (st === 'working') return 'QR okut · Mola / Çıkış';
+  return 'QR okut · İşe giriş';
+}
+function inOutCard(m) {
+  const ins = (m.events || []).filter((e) => e.kind === 'in'), outs = (m.events || []).filter((e) => e.kind === 'out');
+  const firstIn = ins[0], lastOut = m.status === 'done' ? outs[outs.length - 1] : null;
+  return `<div class="card row" style="gap:0;padding:0">
+    <div class="col grow" style="gap:2px;padding:14px 18px;border-right:1px solid var(--line)"><span class="xs muted">Giriş</span><b class="num" style="font-size:22px">${firstIn ? tClock(firstIn.at) : '—'}</b></div>
+    <div class="col grow" style="gap:2px;padding:14px 18px"><span class="xs muted">Çıkış</span><b class="num" style="font-size:22px">${lastOut ? tClock(lastOut.at) : '—'}</b></div>
+  </div>`;
+}
 function renderHomeBody() {
   const m = S.me;
   const evs = (m.events || []).filter((e) => e.kind === 'break_start' || e.kind === 'break_end');
@@ -284,7 +296,7 @@ function renderHomeBody() {
   return `
     <div class="row between">
       <div class="col" style="gap:2px"><span class="small muted">${esc(todayLong())}</span><span style="font-size:22px;font-weight:700">Merhaba, ${esc(String(m.full_name).split(' ')[0])}</span></div>
-      ${m.role === 'admin' ? `<button class="btn sm ghost" data-act="toAdmin">Yönetici paneli</button>` : ''}
+      ${m.role === 'admin' ? `<button class="btn sm ghost" data-act="toAdmin">Yönetici paneli</button>` : chip(m.status)}
     </div>
     ${m.unread ? `<button class="alert danger" data-act="empView" data-v="notifs" style="border:0;text-align:left;cursor:pointer;width:100%"><span class="dz-ic">${I.warn}</span><div class="col" style="gap:2px"><b>${m.unread} yeni uyarın var</b><span class="small">Görmek için dokun</span></div></button>` : ''}
     <div class="leftcard" id="lv-card">
@@ -293,6 +305,7 @@ function renderHomeBody() {
       <div class="bar"><div id="lv-leftbar" style="width:100%"></div></div>
       <span class="small" id="lv-used"></span>
     </div>
+    ${inOutCard(m)}
     <div class="card"><div class="row between" style="margin-bottom:6px"><h2 class="h2">Bugünkü molalar</h2><span class="small muted">${rows.length} mola</span></div>${list || '<p class="muted small" style="margin:6px 0 0">Bugün henüz molaya çıkmadın.</p>'}</div>
     ${perm}
     <div class="grow"></div>
@@ -330,7 +343,7 @@ function tickEmployee() {
   if (el('lv-left')) el('lv-left').textContent = over ? '+' + fmtMS(-L.left) : fmtMS(L.left);
   if (el('lv-leftbar')) el('lv-leftbar').style.width = Math.max(0, Math.min(100, L.left / Math.max(1, m.allowance_sec) * 100)) + '%';
   if (el('lv-card')) { el('lv-card').classList.toggle('over', over); el('lv-leftlabel').textContent = over ? 'Mola hakkını aştın' : 'Kalan mola süren'; }
-  if (el('lv-used')) el('lv-used').textContent = `Bugün ${fmtMin(L.brk)} kullandın · QR okutup molaya çıkınca bu süreden geri sayılır`;
+  if (el('lv-used')) el('lv-used').textContent = `Bugün ${fmtMin(L.brk)} kullandın · Molaya çıkınca bu süreden geri sayılır`;
   if (el('lv-work')) el('lv-work').textContent = fmtHM(L.worked);
   if (m.status === 'break') {
     const warn = !over && L.left < 300;
@@ -405,7 +418,7 @@ function renderScanner(err) {
     <div class="row between"><button class="iconbtn" style="background:#23252B;border:0;color:#fff" aria-label="Geri" data-act="closeScan">${I.back}</button><b>QR Okut</b><span style="width:44px"></span></div>
     <div class="col grow" style="justify-content:center;gap:18px">
       <div id="reader"></div>
-      <p style="margin:0;text-align:center;color:#B7BCC7;line-height:1.5" class="small">${S.me.status === 'break' ? 'Dönüşte duvardaki MOLA QR kodunu okut.<br>Geçen süre mola hakkından düşülür.' : 'Molaya çıkarken duvardaki MOLA QR kodunu okut.<br>Okuttuğun an geri sayım başlar.'}</p>
+      <p style="margin:0;text-align:center;color:#B7BCC7;line-height:1.5" class="small">${S.me.status === 'break' ? 'Dönüşte duvardaki QR kodu okut.<br>Geçen süre mola hakkından düşülür.' : S.me.status === 'working' ? 'Duvardaki QR kodu okut, sonra<br>molaya mı çıkış mı seç.' : 'İşe başlarken duvardaki QR kodu okut.'}</p>
       ${err ? `<div class="err" role="alert">${esc(err)}</div>` : ''}
     </div>
   </div></div>`;
@@ -436,7 +449,20 @@ async function handleToken(text) {
   const token = extractToken(text);
   if (!S.me) return route();
   await refreshMe();
-  return doScan(token, S.me.status === 'break' ? 'break_end' : 'break_start');
+  const st = S.me.status;
+  if (st === 'break') return doScan(token, 'break_end');
+  if (st !== 'working') return doScan(token, 'in');
+  S.view = 'choose'; S.chooseToken = token;
+  const L = live();
+  app.innerHTML = `<div class="phone" style="justify-content:flex-end">
+    <div class="col grow" style="justify-content:center;align-items:center;text-align:center;gap:12px">
+      <span style="width:64px;height:64px;border-radius:32px;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center">${I.check}</span>
+      <h1 class="h1">Kod okundu</h1><p class="muted" style="margin:0">Ne yapmak istiyorsun?</p>
+    </div>
+    <button class="btn big" data-act="doScan" data-v="break_start" style="justify-content:space-between"><span>Molaya çık</span><span class="small" style="font-weight:500;color:#C9CDD6">${L.left > 0 ? fmtMS(L.left) + ' hakkın var' : 'hakkın doldu'}</span></button>
+    <button class="btn big ghost" data-act="doScan" data-v="out">Çıkış yap (gün bitti)</button>
+    <button class="btn ghost" data-act="empView" data-v="home">Vazgeç</button>
+  </div>`;
 }
 async function doScan(token, action) {
   const before = S.me ? live() : null;
@@ -460,18 +486,32 @@ function renderResult() {
       <button class="btn big" data-act="openScan">${I.qr}Tekrar okut</button><button class="btn big ghost" data-act="empView" data-v="home">Ana sayfa</button></div>`;
     return;
   }
-  const used = r.before ? r.before.thisBreak : 0;
+  let title, body, note = '';
+  if (r.action === 'in') {
+    title = 'İşe giriş kaydedildi';
+    body = `<div class="row between"><span class="muted">Giriş saati</span><b class="num" style="font-size:24px">${tClock(r.at)}</b></div>
+      <div class="row between"><span class="muted">Bugünkü mola hakkın</span><b class="num">${fmtMS(r.after.left)}</b></div>`;
+    note = 'İyi çalışmalar!';
+  } else if (r.action === 'out') {
+    title = 'Çıkış kaydedildi';
+    body = `<div class="row between"><span class="muted">Çıkış saati</span><b class="num" style="font-size:24px">${tClock(r.at)}</b></div>
+      <div class="row between"><span class="muted">Bugün toplam mola</span><b class="num" style="color:${r.after.left < 0 ? '#B91C1C' : 'inherit'}">${fmtMin(r.after.brk)}</b></div>`;
+    note = 'Görüşmek üzere!';
+  } else {
+    const used = r.before ? r.before.thisBreak : 0;
+    title = 'Moladan dönüşün kaydedildi';
+    body = `<div class="row between"><span class="muted">Molaya çıkarken kalan</span><b class="num">${r.before && r.before.startLeft < 0 ? 'hak dolmuştu' : fmtMS(r.before ? r.before.startLeft : 0)}</b></div>
+      <div class="row between"><span class="muted">Bu molada geçen</span><b class="num" style="color:#B45309">−${fmtMS(used)}</b></div>
+      <div style="height:1px;background:var(--line)"></div>
+      <div class="row between"><b>Kalan mola hakkın</b><b class="num" style="font-size:28px;color:${r.after.left < 0 ? '#B91C1C' : 'var(--teal)'}">${r.after.left < 0 ? '+' + fmtMS(-r.after.left) + ' aşım' : fmtMS(r.after.left)}</b></div>`;
+    note = 'Sonraki molanda geri sayım bu süreden başlar.';
+  }
   app.innerHTML = `<div class="phone" style="background:#fff">
     <div class="col grow" style="justify-content:center;align-items:center;text-align:center;gap:18px">
       <span style="width:72px;height:72px;border-radius:36px;background:var(--green-bg);color:var(--green);display:flex;align-items:center;justify-content:center">${I.check}</span>
-      <h1 class="h1">Moladan dönüşün kaydedildi</h1>
-      <div class="card col" style="width:100%;background:var(--bg);text-align:left;gap:12px">
-        <div class="row between"><span class="muted">Molaya çıkarken kalan</span><b class="num">${r.before && r.before.startLeft < 0 ? 'hak dolmuştu' : fmtMS(r.before ? r.before.startLeft : 0)}</b></div>
-        <div class="row between"><span class="muted">Bu molada geçen</span><b class="num" style="color:#B45309">−${fmtMS(used)}</b></div>
-        <div style="height:1px;background:var(--line)"></div>
-        <div class="row between"><b>Kalan mola hakkın</b><b class="num" style="font-size:28px;color:${r.after.left < 0 ? '#B91C1C' : 'var(--teal)'}">${r.after.left < 0 ? '+' + fmtMS(-r.after.left) + ' aşım' : fmtMS(r.after.left)}</b></div>
-      </div>
-      <p class="small muted" style="margin:0">Sonraki molanda geri sayım bu süreden başlar.</p>
+      <h1 class="h1">${title}</h1>
+      <div class="card col" style="width:100%;background:var(--bg);text-align:left;gap:12px">${body}</div>
+      <p class="small muted" style="margin:0">${note}</p>
     </div>
     <button class="btn big" data-act="empView" data-v="home">Ana sayfaya dön</button>
   </div>`;
@@ -491,7 +531,7 @@ function teamLive(r) {
 }
 function renderAdmin() {
   stopScanner();
-  const tabs = [['live', 'Canlı mola'], ['reports', 'Raporlar'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
+  const tabs = [['live', 'Canlı durum'], ['reports', 'Raporlar'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
   const unread = S.adminNotifs.filter((n) => !n.read_at).length;
   app.innerHTML = `
   <header class="top"><div class="wrap row between" style="flex-wrap:wrap">
@@ -518,17 +558,18 @@ function renderAdminTab() {
 // canlı durum
 function liveHtml() {
   // sadece bugün molaya çıkmış olanlar (o gün çalışıyordur)
-  const team = S.team.filter((r) => (r.breaks || 0) > 0 || r.status === 'break').map((r) => ({ r, L: teamLive(r) }));
+  const team = S.team.filter((r) => r.first_in || (r.breaks || 0) > 0 || r.status === 'break').map((r) => ({ r, L: teamLive(r) }));
   const cnt = (f) => team.filter(f).length;
   const allowMin = team[0] ? Math.round(team[0].r.allowance_sec / 60) : null;
   const defs = [
+    ['in', 'Şu an çalışıyor', '#16A34A', (x) => x.r.status === 'working' || x.r.status === 'break', 'Giriş yapmış, çıkmamış'],
     ['break', 'Şu an molada', '#D97706', (x) => x.r.status === 'break', 'Geri sayım çalışıyor'],
-    ['idle', 'Moladan döndü', '#16A34A', (x) => x.r.status !== 'break', 'Şu an işte'],
-    ['over', 'Fazla mola', '#B91C1C', (x) => x.L.over, 'Bugün hakkını aşan'],
-    ['all', 'Bugün mola yapan', '#6B7280', () => true, 'Bugün çalışan']
+    ['done', 'Çıkış yaptı', '#6B7280', (x) => x.r.status === 'done', 'Bugün işi bitenler'],
+    ['over', 'Fazla mola', '#B91C1C', (x) => x.L.over, 'Bugün hakkını aşan']
   ];
-  const f = defs.find((d) => d[0] === S.filter && d[0] !== 'all');
-  const rows = team.filter((x) => !f || f[3](x)).sort((a, b) => (b.r.status === 'break') - (a.r.status === 'break') || b.L.brk - a.L.brk);
+  const f = defs.find((d) => d[0] === S.filter);
+  const ord = { break: 0, working: 1, off: 2, done: 3 };
+  const rows = team.filter((x) => !f || f[3](x)).sort((a, b) => (ord[a.r.status] ?? 2) - (ord[b.r.status] ?? 2) || String(a.r.first_in || '').localeCompare(String(b.r.first_in || '')));
   return `
     <div class="row between" style="flex-wrap:wrap">
       <div class="col" style="gap:4px"><h1 class="h1">Bugün</h1><span class="small muted">${esc(todayLong())}${allowMin !== null ? ` · Günlük mola hakkı ${allowMin} dk` : ''}</span></div>
@@ -539,21 +580,23 @@ function liveHtml() {
       <section class="main card" style="padding:0" aria-label="Çalışanlar">
         <div class="row between" style="padding:16px 20px 8px;flex-wrap:wrap"><h2 class="h2">Çalışanlar · ${f ? f[1] : 'Tümü'} (${rows.length})</h2>
           ${f ? '<button class="btn sm ghost" data-act="filter" data-v="all">Filtreyi kaldır</button>' : ''}</div>
-        <div class="tbl-wrap"><table class="tbl" style="min-width:680px">
-          <thead><tr><th scope="col" style="padding-left:20px">Çalışan</th><th scope="col">Durum</th><th scope="col">Bugünkü mola</th><th scope="col">Kalan hak</th><th scope="col">Mola sayısı</th><th scope="col" style="text-align:right;padding-right:20px">İşlem</th></tr></thead>
+        <div class="tbl-wrap"><table class="tbl" style="min-width:820px">
+          <thead><tr><th scope="col" style="padding-left:20px">Çalışan</th><th scope="col">Durum</th><th scope="col">Giriş</th><th scope="col">Çıkış</th><th scope="col">Bugünkü mola</th><th scope="col">Kalan hak</th><th scope="col">Mola sayısı</th><th scope="col" style="text-align:right;padding-right:20px">İşlem</th></tr></thead>
           <tbody>${rows.map(({ r, L }) => {
             const pct = Math.min(100, L.brk / Math.max(1, r.allowance_sec) * 100);
             return `<tr>
               <td style="padding-left:20px"><div class="row" style="gap:10px"><span class="av">${esc(initials(r.full_name))}</span><div class="col" style="gap:0"><b>${esc(r.full_name)}</b><span class="xs muted">${esc(r.contact || '')}</span></div></div></td>
-              <td>${r.status === 'break' ? `<span class="chip st-break"><i></i>Molada · <span class="num" data-live="since" data-since="${esc(r.break_since)}"></span></span>` : chip('working', 'İşte')}</td>
-              <td><div class="row" style="gap:8px"><span class="mbar"><div data-live="mbar" data-u="${r.user_id}" style="width:${pct}%;background:${L.over ? '#DC2626' : L.left < 300 ? '#EA580C' : '#0F766E'}"></div></span><span class="num" data-live="brk" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(L.brk)}</span><span class="xs muted">/ ${Math.round(r.allowance_sec / 60)}</span></div></td>
-              <td class="num" data-live="leftlbl" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : fmtMS(L.left)}</td>
+              <td>${r.status === 'break' ? `<span class="chip st-break"><i></i>Molada · <span class="num" data-live="since" data-since="${esc(r.break_since)}"></span></span>` : chip(r.status)}</td>
+              <td class="num">${r.first_in ? tClock(r.first_in) : '—'}</td>
+              <td class="num">${r.status === 'done' && r.last_out ? tClock(r.last_out) : '—'}</td>
+              <td style="white-space:nowrap"><div class="row" style="gap:8px;flex-wrap:nowrap"><span class="mbar"><div data-live="mbar" data-u="${r.user_id}" style="width:${pct}%;background:${L.over ? '#DC2626' : L.left < 300 ? '#EA580C' : '#0F766E'}"></div></span><span class="num" data-live="brk" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(L.brk)}</span><span class="xs muted">/ ${Math.round(r.allowance_sec / 60)}</span></div></td>
+              <td class="num" style="white-space:nowrap" data-live="leftlbl" data-u="${r.user_id}" style="${L.over ? 'color:#B91C1C;font-weight:700' : ''}">${L.left < 0 ? 'Aşım +' + Math.ceil(-L.left / 60) + ' dk' : fmtMS(L.left)}</td>
               <td class="num">${r.breaks || 0}</td>
               <td style="text-align:right;padding-right:20px;white-space:nowrap">
                 <button class="btn sm ${L.over ? '' : 'ghost'}" data-act="warn" data-u="${r.user_id}">Uyar</button>
                 <button class="btn sm ghost" data-act="manual" data-u="${r.user_id}">Düzelt</button>
               </td></tr>`;
-          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${team.length ? 'Bu filtrede kimse yok.' : (S.team.length ? 'Bugün henüz molaya çıkan yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki bağlantıyı paylaş.')}</td></tr>`}</tbody>
+          }).join('') || `<tr><td colspan="8" style="padding:24px 20px" class="muted">${team.length ? 'Bu filtrede kimse yok.' : (S.team.length ? 'Bugün henüz giriş yapan yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki bağlantıyı paylaş.')}</td></tr>`}</tbody>
         </table></div>
       </section>
       <aside class="side">
@@ -626,7 +669,7 @@ function manualModal(uid) {
   const t = new Date(now()); const v = `${pad(t.getHours())}:${pad(t.getMinutes())}`;
   modal(`<h2 class="h2">${esc(r.full_name || '')} — elle kayıt ekle</h2>
     <span class="small muted">QR okutmayı unutan çalışan için bugüne kayıt ekler.</span>
-    <label class="f">İşlem<select class="inp" name="kind">${r.status === 'break' ? '<option value="break_end">Moladan dönüş</option><option value="break_start">Molaya çıkış</option>' : '<option value="break_start">Molaya çıkış</option><option value="break_end">Moladan dönüş</option>'}</select></label>
+    <label class="f">İşlem<select class="inp" name="kind">${[['in', 'İşe giriş'], ['break_start', 'Molaya çıkış'], ['break_end', 'Moladan dönüş'], ['out', 'Çıkış']].map(([v, t]) => `<option value="${v}" ${(r.status === 'break' ? 'break_end' : r.status === 'working' ? 'out' : 'in') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     <label class="f">Saat<input class="inp" type="time" name="time" value="${v}" required></label>
     <label class="f">Not<input class="inp" name="note" placeholder="Örn. QR okutmayı unuttu"></label>`, async (f) => {
     const [h, m] = String(f.time).split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0);
@@ -653,19 +696,19 @@ function reportTables(rows) {
   const by = {};
   rows.forEach((r) => {
     const p = by[r.user_id] || (by[r.user_id] = { name: r.full_name, brk: 0, n: 0, days: 0, overDays: 0, overMin: 0 });
-    p.brk += r.break_sec; p.n += r.breaks || 0; if (r.break_sec) p.days++;
+    p.brk += r.break_sec; p.n += r.breaks || 0; if (r.first_in || r.break_sec) p.days++;
     if (r.break_sec > r.allowance_sec) { p.overDays++; p.overMin += (r.break_sec - r.allowance_sec) / 60; }
   });
   const sum = Object.values(by).filter((p) => p.n > 0 || p.brk > 0).sort((a, b) => b.overMin - a.overMin || a.name.localeCompare(b.name, 'tr'));
-  const det = rows.filter((r) => r.break_sec || r.breaks);
+  const det = rows.filter((r) => r.first_in || r.break_sec || r.breaks);
   return `<section class="card" style="padding:0"><h2 class="h2" style="padding:16px 20px 6px">Özet</h2><div class="tbl-wrap"><table class="tbl" style="min-width:600px">
-    <thead><tr><th style="padding-left:20px">Çalışan</th><th>Mola yapılan gün</th><th>Mola sayısı</th><th>Toplam mola</th><th>Günlük ortalama</th><th>Fazla mola</th></tr></thead>
+    <thead><tr><th style="padding-left:20px">Çalışan</th><th>Çalıştığı gün</th><th>Mola sayısı</th><th>Toplam mola</th><th>Günlük ortalama</th><th>Fazla mola</th></tr></thead>
     <tbody>${sum.length ? '' : '<tr><td colspan="6" class="muted" style="padding:20px">Bu aralıkta mola kaydı yok.</td></tr>'}${sum.map((p) => `<tr><td style="padding-left:20px"><b>${esc(p.name)}</b></td><td class="num">${p.days}</td><td class="num">${p.n}</td><td class="num">${fmtHM(p.brk)}</td><td class="num">${p.days ? fmtMin(p.brk / p.days) : '—'}</td>
       <td class="num" style="${p.overDays ? 'color:#B91C1C;font-weight:700' : ''}">${p.overDays ? `${p.overDays} gün · toplam ${Math.round(p.overMin)} dk` : '—'}</td></tr>`).join('')}</tbody></table></div></section>
-    <section class="card" style="padding:0;margin-top:20px"><h2 class="h2" style="padding:16px 20px 6px">Günlük detay</h2><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
-    <thead><tr><th style="padding-left:20px">Tarih</th><th>Çalışan</th><th>Mola sayısı</th><th>Toplam mola</th><th>Hak</th><th>Aşım</th></tr></thead>
-    <tbody>${det.map((r) => { const over = r.break_sec > r.allowance_sec; return `<tr><td style="padding-left:20px" class="num">${esc(tDate(r.day))}</td><td>${esc(r.full_name)}</td><td class="num">${r.breaks || 0}</td>
-      <td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(r.break_sec)}</td><td class="num">${Math.round(r.allowance_sec / 60)} dk</td><td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${over ? Math.ceil((r.break_sec - r.allowance_sec) / 60) + ' dk' : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="muted" style="padding:20px">Bu aralıkta mola kaydı yok.</td></tr>'}</tbody></table></div></section>`;
+    <section class="card" style="padding:0;margin-top:20px"><h2 class="h2" style="padding:16px 20px 6px">Günlük detay</h2><div class="tbl-wrap"><table class="tbl" style="min-width:720px">
+    <thead><tr><th style="padding-left:20px">Tarih</th><th>Çalışan</th><th>Giriş</th><th>Çıkış</th><th>Mola sayısı</th><th>Toplam mola</th><th>Hak</th><th>Aşım</th></tr></thead>
+    <tbody>${det.map((r) => { const over = r.break_sec > r.allowance_sec; return `<tr><td style="padding-left:20px" class="num">${esc(tDate(r.day))}</td><td>${esc(r.full_name)}</td><td class="num">${r.first_in ? tClock(r.first_in) : '—'}</td><td class="num">${r.last_out ? tClock(r.last_out) : '—'}</td><td class="num">${r.breaks || 0}</td>
+      <td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${fmtMin(r.break_sec)}</td><td class="num">${Math.round(r.allowance_sec / 60)} dk</td><td class="num" style="${over ? 'color:#B91C1C;font-weight:700' : ''}">${over ? Math.ceil((r.break_sec - r.allowance_sec) / 60) + ' dk' : '—'}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted" style="padding:20px">Bu aralıkta kayıt yok.</td></tr>'}</tbody></table></div></section>`;
 }
 async function runReport(f) {
   const out = document.getElementById('report-out'); out.innerHTML = '<p class="muted">Hazırlanıyor…</p>';
@@ -676,8 +719,8 @@ async function runReport(f) {
 }
 function downloadCsv() {
   if (!S.report || !S.report.rows) return;
-  const head = ['Tarih', 'Çalışan', 'Mola sayısı', 'Toplam mola (dk)', 'Mola hakkı (dk)', 'Aşım (dk)'];
-  const lines = [head].concat(S.report.rows.filter((r) => r.break_sec || r.breaks).map((r) => [r.day, r.full_name, r.breaks || 0,
+  const head = ['Tarih', 'Çalışan', 'Giriş', 'Çıkış', 'Mola sayısı', 'Toplam mola (dk)', 'Mola hakkı (dk)', 'Aşım (dk)'];
+  const lines = [head].concat(S.report.rows.filter((r) => r.first_in || r.break_sec || r.breaks).map((r) => [r.day, r.full_name, r.first_in ? tClock(r.first_in) : '', r.last_out ? tClock(r.last_out) : '', r.breaks || 0,
     Math.round(r.break_sec / 60), Math.round(r.allowance_sec / 60), Math.max(0, Math.ceil((r.break_sec - r.allowance_sec) / 60))]));
   const csv = '\ufeff' + lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -780,7 +823,7 @@ async function loadSettings() {
             <img src="logo.png" alt="${esc(comp.name)} logosu" style="max-width:200px;max-height:110px;object-fit:contain" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:this.alt.replace(' logosu',''),style:'font-size:22px;letter-spacing:1px'}))">
             <b style="font-size:30px;letter-spacing:4px">MOLA QR</b>
             <div style="width:240px">${qrSvg(staticUrl)}</div>
-            <span class="small">Molaya çıkarken ve dönerken<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
+            <span class="small">Giriş · Mola · Dönüş · Çıkış için<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
           <div><button class="btn line" data-act="printQr">Yazdır / PDF indir</button><span class="xs muted" style="margin-left:10px">PDF için yazıcı olarak “PDF olarak kaydet”i seç</span></div>` : ''}
       </section>
       <section class="card col" style="gap:12px">
@@ -797,7 +840,7 @@ async function kioskStart(q) {
   stopKiosk();
   const c = q.get('c'), k = q.get('k');
   S.kiosk = { c, k, exp: 30, at: Date.now() };
-  app.innerHTML = `<div class="kiosk"><h1 id="k-name" style="margin:0;font-size:clamp(22px,4vmin,40px)">QR yükleniyor…</h1><div class="qr" id="k-qr"></div><div class="kbar"><div id="k-bar" style="width:100%"></div></div><div class="clock num" id="k-clock"></div><p style="margin:0;color:#B7BCC7;font-size:clamp(14px,2.4vmin,22px)">Molaya çıkarken ve dönerken uygulamadan okutun</p></div>`;
+  app.innerHTML = `<div class="kiosk"><h1 id="k-name" style="margin:0;font-size:clamp(22px,4vmin,40px)">QR yükleniyor…</h1><div class="qr" id="k-qr"></div><div class="kbar"><div id="k-bar" style="width:100%"></div></div><div class="clock num" id="k-clock"></div><p style="margin:0;color:#B7BCC7;font-size:clamp(14px,2.4vmin,22px)">Giriş, mola ve çıkış için uygulamadan okutun</p></div>`;
   try { if (navigator.wakeLock) S.kiosk.lock = await navigator.wakeLock.request('screen'); } catch (_) {}
   const clock = () => {
     const e = document.getElementById('k-clock'); if (!e || !S.kiosk) return;
@@ -891,7 +934,7 @@ const actions = {
         </div>
         <div class="pv-qr">${qrSvg(a.dataset.qr)}</div>
         <div class="pv-bottom">
-          <div class="pv-steps"><span>Molaya çıkarken okut</span><span>Dönünce okut</span></div>
+          <div class="pv-steps"><span>Giriş</span><span>Mola</span><span>Dönüş</span><span>Çıkış</span></div>
           <p>Uygulamada <b>QR okut</b>'a dokunun ve bu kodu okutun.</p>
         </div>
       </div>`;
