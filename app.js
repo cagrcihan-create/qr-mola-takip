@@ -860,33 +860,30 @@ const actions = {
   toggleStatic: async (b) => { const { error } = await S.sb.from('companies').update({ allow_static_qr: b.checked }).eq('id', S.me.company.id); if (error) toast(errMsg(error)); loadSettings(); },
   printQr: () => {
     const a = document.getElementById('print-area'); if (!a) return;
-    const w = window.open('', '_blank'); if (!w) return toast('Açılır pencereye izin ver');
-    const logo = new URL('logo.png', BASE).href;
-    w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Mola QR</title><style>
-      @page{size:A4;margin:14mm}
-      *{box-sizing:border-box}
-      body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#14161A}
-      .sheet{height:269mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;border:2px solid #14161A;border-radius:10mm;padding:14mm 12mm}
-      .logo{max-width:120mm;max-height:42mm;object-fit:contain}
-      .name{font-size:30pt;font-weight:800;letter-spacing:2pt}
-      h1{margin:0;font-size:54pt;font-weight:800;letter-spacing:8pt}
-      .qr{width:125mm;height:125mm}
-      .qr svg{width:100%;height:100%}
-      .steps{display:flex;gap:6mm;justify-content:center;font-size:13pt;font-weight:600}
-      .steps span{border:1.5px solid #14161A;border-radius:99px;padding:2mm 5mm}
-      p{margin:0;font-size:13pt;color:#3B414E}
-    </style></head><body><div class="sheet">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:6mm">
-        <img class="logo" src="${logo}" alt="" onerror="this.outerHTML='<div class=&quot;name&quot;>${esc(a.dataset.name)}</div>'">
-        <h1>MOLA QR</h1>
+    document.getElementById('print-ov')?.remove();
+    const ov = document.createElement('div'); ov.id = 'print-ov';
+    ov.innerHTML = `<div class="pv-bar noprint">
+        <button class="btn ghost" data-pv="close">${I.back} Kapat</button>
+        <button class="btn" data-pv="print">Yazdır / PDF</button>
       </div>
-      <div class="qr">${qrSvg(a.dataset.qr)}</div>
-      <div style="display:flex;flex-direction:column;gap:5mm;align-items:center">
-        <div class="steps"><span>Molaya çıkarken okut</span><span>Dönünce okut</span></div>
-        <p>Uygulamada <b>QR okut</b>'a dokunun ve bu kodu okutun.</p>
-      </div>
-    </div><script>window.onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);
-    w.document.close();
+      <p class="pv-hint noprint">PDF için yazdırma ekranında yazıcı olarak “PDF olarak kaydet”i seç. iPhone'da: Yazdır ekranında önizlemeyi iki parmakla büyütüp Paylaş → “Dosyalara Kaydet”.</p>
+      <div class="pv-sheet">
+        <div class="pv-top">
+          <img class="pv-logo" src="logo.png" alt="${esc(a.dataset.name)}" onerror="this.outerHTML='<div class=&quot;pv-name&quot;>${esc(a.dataset.name)}</div>'">
+          <div class="pv-title">MOLA QR</div>
+        </div>
+        <div class="pv-qr">${qrSvg(a.dataset.qr)}</div>
+        <div class="pv-bottom">
+          <div class="pv-steps"><span>Molaya çıkarken okut</span><span>Dönünce okut</span></div>
+          <p>Uygulamada <b>QR okut</b>'a dokunun ve bu kodu okutun.</p>
+        </div>
+      </div>`;
+    ov.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pv]'); if (!b) return;
+      if (b.dataset.pv === 'close') { ov.remove(); document.body.classList.remove('printing-qr'); } else window.print();
+    });
+    document.body.appendChild(ov);
+    document.body.classList.add('printing-qr');
   },
   rotate: async () => { if (!confirm('Kapı ekranı bağlantısı ve sabit QR yenilensin mi? Kapı ekranını yeni bağlantıyla tekrar açman gerekecek.')) return; const { error } = await S.sb.rpc('rotate_secrets'); if (error) return toast(errMsg(error)); toast('Yenilendi'); loadSettings(); }
 };
