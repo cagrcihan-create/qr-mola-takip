@@ -1,6 +1,6 @@
 // QR Mola Takip — günlük fazla mola raporu
 // Her sabah 10:00'da çağrılır; önceki gün mola hakkını aşan varsa yöneticilere PDF'li e-posta gönderir.
-// Gerekli gizli değerler (Edge Functions > Secrets): RESEND_API_KEY, CRON_SECRET
+// Gerekli gizli değerler (Edge Functions > Secrets): RESEND_API_KEY, CRON_SECRET (isteğe bağlı: REPORT_TO)
 // Elle deneme: https://<proje>.supabase.co/functions/v1/gunluk-rapor?key=<CRON_SECRET>&test=1
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { PDFDocument, rgb } from "npm:pdf-lib@1.17.1";
@@ -11,6 +11,7 @@ const LOGO_URL = APP_URL + "logo.png";
 const FONT_R = "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf";
 const FONT_B = "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf";
 const FROM = "Mola Takip <onboarding@resend.dev>";
+const DEFAULT_TO = "cagrcihan@gmail.com";
 
 // ---- PDF-BUILDER-START
 function dkText(sec) { return Math.round(sec / 60) + " dk"; }
@@ -132,8 +133,12 @@ Deno.serve(async (req) => {
     const { data: rows, error } = await sb.rpc("report_overdue", { p_company: c.id, p_day: day });
     if (error) { result.push({ company: c.name, day, error: error.message }); continue; }
     if (!rows.length && !test) { result.push({ company: c.name, day, sent: false, reason: "Fazla mola yok" }); continue; }
-    const { data: emails } = await sb.rpc("report_admin_emails", { p_company: c.id });
-    const to = (emails || []).map((e) => (typeof e === "string" ? e : Object.values(e)[0])).filter(Boolean);
+    // Resend ücretsiz planda sadece hesap sahibinin adresine gönderir: REPORT_TO (varsayılan cagrcihan@gmail.com)
+    let to = (Deno.env.get("REPORT_TO") || DEFAULT_TO).split(",").map((x) => x.trim()).filter(Boolean);
+    if (!to.length) {
+      const { data: emails } = await sb.rpc("report_admin_emails", { p_company: c.id });
+      to = (emails || []).map((e) => (typeof e === "string" ? e : Object.values(e)[0])).filter(Boolean);
+    }
     if (!to.length) { result.push({ company: c.name, day, sent: false, reason: "Yönetici e-postası yok" }); continue; }
 
     if (!assets) {
