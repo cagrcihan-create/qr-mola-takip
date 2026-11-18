@@ -404,6 +404,15 @@ function tickEmployee() {
     const key = m.break_since;
     if (warn && !S.marks[key + 'w']) { S.marks[key + 'w'] = 1; notifyDevice('Molan bitiyor', '5 dakikadan az kaldı.'); alertSound('warn', 'Molanın bitmesine beş dakika kaldı.'); }
     if (over && !S.marks[key + 'o']) { S.marks[key + 'o'] = 1; notifyDevice('Mola hakkın doldu', 'Lütfen QR okutup işe dön.'); alertSound('alarm', 'Mola süren doldu. Lütfen işe dön.'); }
+    const tenth = Math.floor(L.thisBreak / 600);
+    if (!S.marks[key + 'init']) { S.marks[key + 'init'] = 1; S.marks[key + 't' + tenth] = 1; }
+    if (tenth >= 1 && !S.marks[key + 't' + tenth]) {
+      S.marks[key + 't' + tenth] = 1;
+      const passed = tenth * 10, leftMin = Math.floor(Math.abs(L.left) / 60);
+      beep('warn');
+      say(over ? `Molanın ${passed} dakikası geçti. Mola süreni ${Math.max(1, leftMin)} dakika aştın, lütfen işe dön.`
+               : `Molanın ${passed} dakikası geçti. Kalan mola süren ${leftMin} dakika.`);
+    }
     if (over && !S.marks[key + 'o5'] && -L.left >= 300) { S.marks[key + 'o5'] = 1; alertSound('alarm', 'Mola süreni beş dakika aştın.'); }
   }
 }
