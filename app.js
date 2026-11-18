@@ -501,14 +501,15 @@ function renderAdminTab() {
 
 // canlı durum
 function liveHtml() {
-  const team = S.team.map((r) => ({ r, L: teamLive(r) }));
+  // sadece bugün molaya çıkmış olanlar (o gün çalışıyordur)
+  const team = S.team.filter((r) => (r.breaks || 0) > 0 || r.status === 'break').map((r) => ({ r, L: teamLive(r) }));
   const cnt = (f) => team.filter(f).length;
   const allowMin = team[0] ? Math.round(team[0].r.allowance_sec / 60) : null;
   const defs = [
     ['break', 'Şu an molada', '#D97706', (x) => x.r.status === 'break', 'Geri sayım çalışıyor'],
-    ['idle', 'İşte', '#16A34A', (x) => x.r.status !== 'break', 'Molada değil'],
+    ['idle', 'Moladan döndü', '#16A34A', (x) => x.r.status !== 'break', 'Şu an işte'],
     ['over', 'Fazla mola', '#B91C1C', (x) => x.L.over, 'Bugün hakkını aşan'],
-    ['all', 'Toplam çalışan', '#6B7280', () => true, 'Mola takibi açık']
+    ['all', 'Bugün mola yapan', '#6B7280', () => true, 'Bugün çalışan']
   ];
   const f = defs.find((d) => d[0] === S.filter && d[0] !== 'all');
   const rows = team.filter((x) => !f || f[3](x)).sort((a, b) => (b.r.status === 'break') - (a.r.status === 'break') || b.L.brk - a.L.brk);
@@ -536,7 +537,7 @@ function liveHtml() {
                 <button class="btn sm ${L.over ? '' : 'ghost'}" data-act="warn" data-u="${r.user_id}">Uyar</button>
                 <button class="btn sm ghost" data-act="manual" data-u="${r.user_id}">Düzelt</button>
               </td></tr>`;
-          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${S.team.length ? 'Bu filtrede kimse yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki davet kodunu paylaş.'}</td></tr>`}</tbody>
+          }).join('') || `<tr><td colspan="6" style="padding:24px 20px" class="muted">${team.length ? 'Bu filtrede kimse yok.' : (S.team.length ? 'Bugün henüz molaya çıkan yok.' : 'Henüz çalışan yok. “Çalışanlar” sekmesindeki davet kodunu paylaş.')}</td></tr>`}</tbody>
         </table></div>
       </section>
       <aside class="side">
@@ -639,11 +640,11 @@ function reportTables(rows) {
     p.brk += r.break_sec; p.n += r.breaks || 0; if (r.break_sec) p.days++;
     if (r.break_sec > r.allowance_sec) { p.overDays++; p.overMin += (r.break_sec - r.allowance_sec) / 60; }
   });
-  const sum = Object.values(by).sort((a, b) => b.overMin - a.overMin || a.name.localeCompare(b.name, 'tr'));
+  const sum = Object.values(by).filter((p) => p.n > 0 || p.brk > 0).sort((a, b) => b.overMin - a.overMin || a.name.localeCompare(b.name, 'tr'));
   const det = rows.filter((r) => r.break_sec || r.breaks);
   return `<section class="card" style="padding:0"><h2 class="h2" style="padding:16px 20px 6px">Özet</h2><div class="tbl-wrap"><table class="tbl" style="min-width:600px">
     <thead><tr><th style="padding-left:20px">Çalışan</th><th>Mola yapılan gün</th><th>Mola sayısı</th><th>Toplam mola</th><th>Günlük ortalama</th><th>Fazla mola</th></tr></thead>
-    <tbody>${sum.map((p) => `<tr><td style="padding-left:20px"><b>${esc(p.name)}</b></td><td class="num">${p.days}</td><td class="num">${p.n}</td><td class="num">${fmtHM(p.brk)}</td><td class="num">${p.days ? fmtMin(p.brk / p.days) : '—'}</td>
+    <tbody>${sum.length ? '' : '<tr><td colspan="6" class="muted" style="padding:20px">Bu aralıkta mola kaydı yok.</td></tr>'}${sum.map((p) => `<tr><td style="padding-left:20px"><b>${esc(p.name)}</b></td><td class="num">${p.days}</td><td class="num">${p.n}</td><td class="num">${fmtHM(p.brk)}</td><td class="num">${p.days ? fmtMin(p.brk / p.days) : '—'}</td>
       <td class="num" style="${p.overDays ? 'color:#B91C1C;font-weight:700' : ''}">${p.overDays ? `${p.overDays} gün · toplam ${Math.round(p.overMin)} dk` : '—'}</td></tr>`).join('')}</tbody></table></div></section>
     <section class="card" style="padding:0;margin-top:20px"><h2 class="h2" style="padding:16px 20px 6px">Günlük detay</h2><div class="tbl-wrap"><table class="tbl" style="min-width:560px">
     <thead><tr><th style="padding-left:20px">Tarih</th><th>Çalışan</th><th>Mola sayısı</th><th>Toplam mola</th><th>Hak</th><th>Aşım</th></tr></thead>
