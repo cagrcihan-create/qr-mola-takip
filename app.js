@@ -825,7 +825,11 @@ async function loadSettings() {
         <h2 class="h2">Sabit (yazdırılabilir) QR</h2>
         <p class="small muted" style="margin:0;line-height:1.5">Tablet koyamıyorsan duvara asılacak sabit bir QR kullanabilirsin. Daha az güvenli: fotoğrafı çekilirse başka yerden de okutulabilir.</p>
         <label class="row small" style="gap:8px"><input type="checkbox" data-act="toggleStatic" ${comp.allow_static_qr ? 'checked' : ''}> Sabit QR ile okutmaya izin ver</label>
-        ${comp.allow_static_qr ? `<div id="print-area" class="col" style="align-items:center;gap:10px;padding:16px;border:1px dashed #D5D8DF;border-radius:16px"><b style="font-size:20px">${esc(comp.name)}</b><div style="width:260px">${qrSvg(staticUrl)}</div><span class="small">Giriş · Mola · Çıkış için okutun</span></div>
+        ${comp.allow_static_qr ? `<div id="print-area" data-qr="${esc(staticUrl)}" data-name="${esc(comp.name)}" class="col" style="align-items:center;gap:10px;padding:20px 16px;border:1px dashed #D5D8DF;border-radius:16px;text-align:center">
+            <img src="logo.png" alt="${esc(comp.name)} logosu" style="max-width:200px;max-height:110px;object-fit:contain" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:this.alt.replace(' logosu',''),style:'font-size:22px;letter-spacing:1px'}))">
+            <b style="font-size:30px;letter-spacing:4px">MOLA QR</b>
+            <div style="width:240px">${qrSvg(staticUrl)}</div>
+            <span class="small">Giriş · Mola · Dönüş · Çıkış için<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
           <div><button class="btn line" data-act="printQr">Yazdır</button></div>` : ''}
       </section>
       <section class="card col" style="gap:12px">
@@ -920,7 +924,36 @@ const actions = {
   copy: async (b) => { try { await navigator.clipboard.writeText(b.dataset.v); toast('Kopyalandı'); } catch (_) { toast('Kopyalanamadı'); } },
   share: async (b) => { if (navigator.share) { try { await navigator.share({ text: b.dataset.v }); } catch (_) {} } else actions.copy(b); },
   toggleStatic: async (b) => { const { error } = await S.sb.from('companies').update({ allow_static_qr: b.checked }).eq('id', S.me.company.id); if (error) toast(errMsg(error)); loadSettings(); },
-  printQr: () => { const a = document.getElementById('print-area'); if (!a) return; const w = window.open('', '_blank'); if (!w) return toast('Açılır pencereye izin ver'); w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>QR</title><style>body{font-family:system-ui;display:flex;flex-direction:column;align-items:center;gap:16px;padding:40px;text-align:center}svg{width:120mm;height:120mm}</style></head><body>${a.innerHTML}<script>onload=()=>print()<\/script></body></html>`); w.document.close(); },
+  printQr: () => {
+    const a = document.getElementById('print-area'); if (!a) return;
+    const w = window.open('', '_blank'); if (!w) return toast('Açılır pencereye izin ver');
+    const logo = new URL('logo.png', BASE).href;
+    w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Mola QR</title><style>
+      @page{size:A4;margin:14mm}
+      *{box-sizing:border-box}
+      body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#14161A}
+      .sheet{height:269mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;border:2px solid #14161A;border-radius:10mm;padding:14mm 12mm}
+      .logo{max-width:120mm;max-height:42mm;object-fit:contain}
+      .name{font-size:30pt;font-weight:800;letter-spacing:2pt}
+      h1{margin:0;font-size:54pt;font-weight:800;letter-spacing:8pt}
+      .qr{width:125mm;height:125mm}
+      .qr svg{width:100%;height:100%}
+      .steps{display:flex;gap:6mm;justify-content:center;font-size:13pt;font-weight:600}
+      .steps span{border:1.5px solid #14161A;border-radius:99px;padding:2mm 5mm}
+      p{margin:0;font-size:13pt;color:#3B414E}
+    </style></head><body><div class="sheet">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6mm">
+        <img class="logo" src="${logo}" alt="" onerror="this.outerHTML='<div class=&quot;name&quot;>${esc(a.dataset.name)}</div>'">
+        <h1>MOLA QR</h1>
+      </div>
+      <div class="qr">${qrSvg(a.dataset.qr)}</div>
+      <div style="display:flex;flex-direction:column;gap:5mm;align-items:center">
+        <div class="steps"><span>Giriş</span><span>Mola</span><span>Dönüş</span><span>Çıkış</span></div>
+        <p>Uygulamada <b>QR okut</b>'a dokunun ve bu kodu okutun.</p>
+      </div>
+    </div><script>window.onload=()=>setTimeout(()=>print(),400)<\/script></body></html>`);
+    w.document.close();
+  },
   rotate: async () => { if (!confirm('Kapı ekranı bağlantısı ve sabit QR yenilensin mi? Kapı ekranını yeni bağlantıyla tekrar açman gerekecek.')) return; const { error } = await S.sb.rpc('rotate_secrets'); if (error) return toast(errMsg(error)); toast('Yenilendi'); loadSettings(); }
 };
 app.addEventListener('click', (e) => {
