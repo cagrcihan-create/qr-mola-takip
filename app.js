@@ -262,7 +262,7 @@ function renderEmployee() {
   else if (S.view === 'notifs') body = renderNotifsBody();
   else if (S.view === 'profile') body = renderProfileBody();
   else body = renderHomeBody();
-  app.innerHTML = `<div class="phone">${body}${empNav()}</div>`;
+  app.innerHTML = `<div class="phone">${body}<div class="grow"></div>${empNav()}</div>`;
   if (S.view === 'history') loadHistory();
   if (S.view === 'notifs') loadNotifs();
   tick();
@@ -285,6 +285,7 @@ function renderHomeBody() {
       <div class="col" style="gap:2px"><span class="small muted">${esc(todayLong())}</span><span style="font-size:22px;font-weight:700">Merhaba, ${esc(String(m.full_name).split(' ')[0])}</span></div>
       ${m.role === 'admin' ? `<button class="btn sm ghost" data-act="toAdmin">Yönetici paneli</button>` : ''}
     </div>
+    ${m.unread ? `<button class="alert danger" data-act="empView" data-v="notifs" style="border:0;text-align:left;cursor:pointer;width:100%"><span class="dz-ic">${I.warn}</span><div class="col" style="gap:2px"><b>${m.unread} yeni uyarın var</b><span class="small">Görmek için dokun</span></div></button>` : ''}
     <div class="leftcard" id="lv-card">
       <div class="row between small" style="font-weight:600"><span id="lv-leftlabel">Kalan mola süren</span><span style="font-weight:500">Günlük hak ${Math.round(m.allowance_sec / 60)} dk</span></div>
       <span class="big num" id="lv-left">--:--</span>
@@ -374,7 +375,13 @@ async function loadNotifs() {
   const { data, error } = await S.sb.from('notifications').select('*').eq('user_id', S.me.user_id).order('created_at', { ascending: false }).limit(50);
   const box = document.getElementById('notifs'); if (!box) return;
   if (error) { box.innerHTML = `<div class="err">${esc(errMsg(error))}</div>`; return; }
-  box.innerHTML = data.map((n) => `<div class="alert ${n.kind === 'late' || n.kind === 'absent' ? 'w' : n.kind === 'warning' || n.kind === 'overdue' ? '' : 'i'}" style="${n.read_at ? 'opacity:.7' : ''}"><i></i><div class="col" style="gap:3px"><b class="small">${esc(n.title)}</b><span class="small">${esc(n.body || '')}</span><span class="xs muted">${new Date(n.created_at).toLocaleString('tr-TR', { timeZone: tz(), day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div></div>`).join('') || '<p class="muted small">Bildirim yok.</p>';
+  box.innerHTML = data.map((n) => {
+    const t = new Date(n.created_at).toLocaleString('tr-TR', { timeZone: tz(), day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    if (n.kind === 'warning' || n.kind === 'overdue') {
+      return `<div class="alert danger" role="alert"><span class="dz-ic">${I.warn}</span><div class="col" style="gap:3px"><b>${esc(n.title)}</b><span class="small">${esc(n.body || '')}</span><span class="xs" style="opacity:.8">${t}${n.read_at ? '' : ' · Yeni'}</span></div></div>`;
+    }
+    return `<div class="alert i" style="${n.read_at ? 'opacity:.7' : ''}"><i></i><div class="col" style="gap:3px"><b class="small">${esc(n.title)}</b><span class="small">${esc(n.body || '')}</span><span class="xs muted">${t}</span></div></div>`;
+  }).join('') || '<p class="muted small">Bildirim yok.</p>';
   if (data.some((n) => !n.read_at)) {
     await S.sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('user_id', S.me.user_id).is('read_at', null);
     S.me.unread = 0; S.lastUnread = 0;
