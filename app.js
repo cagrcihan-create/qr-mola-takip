@@ -830,7 +830,7 @@ async function loadSettings() {
             <b style="font-size:30px;letter-spacing:4px">MOLA QR</b>
             <div style="width:240px">${qrSvg(staticUrl)}</div>
             <span class="small">Giriş · Mola · Dönüş · Çıkış için<br>uygulamadan <b>QR okut</b>'a dokunup okutun</span></div>
-          <div><button class="btn line" data-act="printQr">Yazdır</button></div>` : ''}
+          <div><button class="btn line" data-act="printQr">Yazdır / PDF indir</button><span class="xs muted" style="margin-left:10px">PDF için yazıcı olarak “PDF olarak kaydet”i seç</span></div>` : ''}
       </section>
       <section class="card col" style="gap:12px">
         <h2 class="h2">Güvenlik</h2>
