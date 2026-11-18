@@ -1,4 +1,11 @@
 -- QR Mola Takip: sadece mola güncellemesi
+-- (tablolar zaten korumalı; aşağıdaki satırlar Supabase'in yanlış RLS uyarısını önler)
+alter table public.companies enable row level security;
+alter table public.company_secrets enable row level security;
+alter table public.profiles enable row level security;
+alter table public.events enable row level security;
+alter table public.leaves enable row level security;
+alter table public.notifications enable row level security;
 
 create or replace function public._day_calc(p_user uuid, p_from timestamptz, p_to timestamptz, p_now timestamptz)
 returns table(status text, first_in timestamptz, worked_sec int, break_sec int, break_since timestamptz, breaks int)
