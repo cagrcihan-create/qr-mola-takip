@@ -520,6 +520,9 @@ revoke execute on function public.admin_add_event(uuid, text, timestamptz, text)
 revoke execute on function public.admin_secrets() from public, anon;
 revoke execute on function public.rotate_secrets() from public, anon;
 
+grant usage on schema public to anon, authenticated;
+grant execute on function public.my_company() to authenticated;
+grant execute on function public.is_admin() to authenticated;
 grant execute on function public.create_company(text, text, text) to authenticated;
 grant execute on function public.join_company(text, text, text) to authenticated;
 grant execute on function public.my_status() to authenticated;
