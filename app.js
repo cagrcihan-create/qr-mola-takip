@@ -55,12 +55,94 @@ function qrSvg(text) {
 function notifyDevice(title, body) {
   try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
   try {
-    if ('Notification' in window && Notification.permission === 'granted') {
+    if (!push.on && 'Notification' in window && Notification.permission === 'granted') {
       if (navigator.serviceWorker && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then((r) => r.showNotification(title, { body, icon: 'icon.svg' }));
       } else new Notification(title, { body, icon: 'icon.svg' });
     }
   } catch (_) {}
+}
+
+// ------------------------------------------------------------------ telefon bildirimleri (push)
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const push = { supported: 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window, on: false, busy: false, syncedFor: null, reg: null };
+function b64uBytes(s) {
+  const b = atob((s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+async function swReady() {
+  if (push.reg) return push.reg;
+  if (!('serviceWorker' in navigator)) return null;
+  try { push.reg = await navigator.serviceWorker.register('sw.js'); } catch (_) { push.reg = null; }
+  return push.reg;
+}
+async function currentSub() {
+  const reg = await swReady();
+  if (!reg || !reg.pushManager) return null;
+  try { return await reg.pushManager.getSubscription(); } catch (_) { return null; }
+}
+async function saveSub(sub) {
+  const j = sub.toJSON();
+  const { error } = await S.sb.rpc('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_ua: navigator.userAgent });
+  if (error) throw error;
+}
+// Girişten sonra: bu telefon daha önce abone olduysa aboneliği bu hesaba bağla
+async function syncPush() {
+  if (!S.me || push.syncedFor === S.me.user_id) return;
+  push.syncedFor = S.me.user_id;
+  const sub = push.supported ? await currentSub() : null;
+  push.on = !!sub && Notification.permission === 'granted';
+  if (push.on) { try { await saveSub(sub); } catch (_) { /* sonraki açılışta tekrar dener */ } }
+}
+async function enablePush() {
+  if (push.busy) return;
+  if (!push.supported) {
+    return toast(isIOS && !standalone ? 'Önce Safari’de Paylaş → “Ana Ekrana Ekle” de, sonra uygulamayı ana ekrandan aç.' : 'Bu tarayıcı telefon bildirimlerini desteklemiyor.');
+  }
+  push.busy = true;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('Bildirim izni verilmedi. Telefonun Ayarlar bölümünden açabilirsin.'); return; }
+    const reg = await swReady();
+    if (!reg) throw new Error('Arka plan çalışanı başlatılamadı');
+    await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { data, error } = await S.sb.functions.invoke('push-gonder', { body: { action: 'key' } });
+      if (error || !data || !data.key) throw new Error('Bildirim sunucusuna ulaşılamadı. Kurulum tamamlanmamış olabilir.');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(data.key) });
+    }
+    await saveSub(sub);
+    push.on = true; push.syncedFor = S.me && S.me.user_id;
+    toast('Bildirimler açıldı. Deneme bildirimi geliyor…');
+    S.sb.rpc('push_test');
+  } catch (e) { toast(errMsg(e)); }
+  finally { push.busy = false; render(); }
+}
+async function disablePush(silent) {
+  const sub = await currentSub();
+  if (sub) {
+    try { await S.sb.rpc('remove_push_subscription', { p_endpoint: sub.endpoint }); } catch (_) {}
+    try { await sub.unsubscribe(); } catch (_) {}
+  }
+  push.on = false;
+  if (!silent) { toast('Bu telefona bildirim gönderilmeyecek.'); render(); }
+}
+function pushCard(compact) {
+  if (push.on) {
+    return compact ? '' : `<div class="card row between"><div class="col" style="gap:2px"><b>Telefon bildirimleri</b><span class="small muted">Açık. Uygulama kapalıyken de uyarılar bu telefona gelir.</span></div>
+      <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="pushTest">Dene</button><button class="btn sm teal" data-act="pushOff" aria-pressed="true">Açık</button></div></div>`;
+  }
+  let msg = '', btn = '';
+  if (!push.supported) msg = isIOS && !standalone ? 'Bildirim almak için: Safari’de Paylaş → “Ana Ekrana Ekle”, sonra uygulamayı ana ekrandaki simgeden aç.' : 'Bu tarayıcı telefon bildirimlerini desteklemiyor.';
+  else if (Notification.permission === 'denied') msg = 'Bildirimler engellenmiş. Telefonun Ayarlar → Bildirimler bölümünden bu uygulamaya izin ver.';
+  else { msg = 'Mola biterken ve uyarı gelince, uygulama kapalı ve telefon kilitliyken de mesaj gibi bildirim gelir.'; btn = `<button class="btn ${compact ? '' : 'sm '}" data-act="askNotif" ${push.busy ? 'disabled' : ''}>${I.bell} Bildirimleri aç</button>`; }
+  if (compact && !btn) return '';
+  return `<div class="card col" style="gap:10px"><div class="col" style="gap:2px"><b>Telefon bildirimleri</b><span class="small muted" style="line-height:1.45">${msg}</span></div>${btn ? `<div>${btn}</div>` : ''}</div>`;
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'push' && !document.hidden) poll(true); });
 }
 
 // ------------------------------------------------------------------ ses
@@ -146,6 +228,7 @@ async function route() {
     if (ok === 'error') return;
   }
   if (!S.me) return renderOnboard();
+  syncPush().then(() => { if (push.on && !S.kiosk) render(); });
   if (S.pendingToken) { const t = S.pendingToken; S.pendingToken = null; return handleToken(t); }
   render();
 }
@@ -325,8 +408,7 @@ function renderHomeBody() {
   const rows = []; let open = null;
   evs.forEach((e) => { if (e.kind === 'break_start') open = e; else if (open) { rows.push([open.at, e.at, open.source === 'manual' || e.source === 'manual']); open = null; } });
   const list = rows.map(([a, b, man]) => `<div class="ev"><span class="evi" style="background:var(--amber-bg);color:var(--amber)">${I.cup}</span><span class="grow">${tClock(a)} – ${tClock(b)}${man ? ' <span class="xs muted">(yönetici)</span>' : ''}</span><b class="num">${fmtMin((new Date(b) - new Date(a)) / 1000)}</b></div>`).join('');
-  const perm = ('Notification' in window && Notification.permission === 'default')
-    ? `<button class="btn line" data-act="askNotif">${I.bell} Mola uyarıları için bildirimlere izin ver</button>` : '';
+  const perm = pushCard(true);
   return `
     <div class="row between">
       <div class="col" style="gap:2px"><span class="small muted">${esc(todayLong())}</span><span style="font-size:22px;font-weight:700">Merhaba, ${esc(String(m.full_name).split(' ')[0])}</span></div>
@@ -452,7 +534,7 @@ function renderProfileBody() {
     <span class="small muted">Günlük mola hakkı: ${Math.round(m.allowance_sec / 60)} dk</span></div>
     <div class="card row between"><div class="col" style="gap:2px"><b>Sesli uyarılar</b><span class="small muted">Mola biterken ve uyarı gelince ses çalar, sesli okur</span></div>
       <div class="row" style="gap:6px"><button class="btn sm ghost" data-act="testSound">Dene</button><button class="btn sm ${soundOn() ? 'teal' : 'line'}" data-act="toggleSound" aria-pressed="${soundOn()}">${soundOn() ? 'Açık' : 'Kapalı'}</button></div></div>
-    ${'Notification' in window && Notification.permission !== 'granted' ? `<button class="btn line" data-act="askNotif">${I.bell} Bildirimlere izin ver</button>` : ''}
+    ${pushCard()}
     ${m.role === 'admin' ? `<button class="btn ghost" data-act="toAdmin">Yönetici paneline geç</button>` : ''}
     <button class="btn ghost" data-act="logout">Çıkış yap</button>
     <p class="xs muted" style="margin:0">İpucu: Telefonda Safari'de Paylaş → “Ana Ekrana Ekle” diyerek uygulama gibi kullanabilirsin.</p>`;
@@ -855,6 +937,7 @@ async function loadSettings() {
     const days = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
     const t5 = (v) => String(v).slice(0, 5);
     document.getElementById('admin-main').innerHTML = `<h1 class="h1">Ayarlar</h1>
+      ${pushCard()}
       <form class="card col" data-form="settings" style="gap:16px">
         <h2 class="h2">Mola kuralları</h2>
         <div class="formgrid">
@@ -950,7 +1033,7 @@ async function poll(force) {
 // ------------------------------------------------------------------ olaylar
 const actions = {
   reload: () => location.reload(),
-  logout: async () => { await stopScanner(); S.asEmployee = false; S.view = 'home'; await S.sb.auth.signOut(); },
+  logout: async () => { await stopScanner(); if (push.on) await disablePush(true); push.syncedFor = null; S.asEmployee = false; S.view = 'home'; await S.sb.auth.signOut(); },
   authTab: (b) => { authState.tab = b.dataset.v; authState.err = ''; authState.msg = ''; renderAuth(); },
   authMethod: (b) => { authState.method = b.dataset.v; renderAuth(); },
   authMode: (b) => { authState.mode = b.dataset.v; renderAuth(); },
@@ -959,7 +1042,9 @@ const actions = {
   openScan: () => { S.view = 'scan'; renderEmployee(); },
   closeScan: async () => { await stopScanner(); S.view = 'home'; renderEmployee(); },
   doScan: (b) => doScan(S.chooseToken, b.dataset.v),
-  askNotif: async () => { try { await Notification.requestPermission(); } catch (_) {} render(); },
+  askNotif: () => enablePush(),
+  pushOff: () => disablePush(),
+  pushTest: async () => { const { error } = await S.sb.rpc('push_test'); toast(error ? errMsg(error) : 'Deneme bildirimi gönderildi'); },
   toAdmin: () => { S.asEmployee = false; S.view = 'home'; render(); },
   toEmployee: () => { S.asEmployee = true; S.view = 'home'; refreshMe().then(render); },
   tab: (b) => { S.tab = b.dataset.v; renderAdmin(); },

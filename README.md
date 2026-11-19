@@ -67,19 +67,37 @@ Telefonun kendi kamerasıyla okutmak da çalışır (QR bir bağlantıdır), ama
 
 ## Uyarılar nasıl çalışır?
 
-- **Çalışan**: mola ekranında son 5 dakikada turuncu, süre bitince kırmızı uyarı + titreşim; bildirim izni verdiyse telefon bildirimi (uygulama/sekme açıkken).
-- **Yönetici**: fazla mola, geç gelme ve gelmeyen çalışan uyarıları panelde ve zil simgesinde görünür; panel açıkken tarayıcı bildirimi gelir. Veritabanı her dakika otomatik kontrol yapar (`pg_cron`), bu yüzden uyarılar panel kapalıyken de kaydedilir.
+- **Çalışan**: mola ekranında son 5 dakikada turuncu, süre bitince kırmızı uyarı + titreşim. **Telefon bildirimlerini açtıysa** "Molanın bitmesine 5 dk kaldı" ve "Mola hakkın doldu" mesajları uygulama kapalı, telefon kilitliyken de gelir.
+- **Yönetici**: fazla mola uyarıları panelde ve zil simgesinde görünür; telefon bildirimlerini açtıysa uygulama kapalıyken de telefona gelir. Veritabanı her dakika otomatik kontrol yapar (`pg_cron`), bu yüzden uyarılar panel kapalıyken de kaydedilir.
 - Yönetici bir çalışana **Uyar** düğmesiyle mesaj gönderebilir; çalışan bunu Bildirimler'de görür.
 
 ## Bilinen sınırlar / sonraki adımlar
 
 - Telefonla kayıtta **SMS doğrulaması yok** (numara + şifre ile giriş). SMS doğrulaması için Supabase'e bir SMS sağlayıcısı (Twilio vb.) bağlanabilir.
-- Uygulama tamamen kapalıyken telefona anlık bildirim (push) yok; bunun için Web Push eklenebilir.
+- Telefon bildirimleri telefonun kendi bildirim sesiyle gelir; özel ses ve sesli okuma yalnızca uygulama açıkken çalışır.
 - Gece yarısını geçen vardiyalar (gece vardiyası) her gün ayrı hesaplanır.
 - Supabase ücretsiz planında proje 1 hafta hiç kullanılmazsa duraklatılır; panelden tek tıkla tekrar açılır.
+
+## Telefon bildirimleri (bir kez kurulur)
+
+Uygulama kapalıyken ve telefon kilitliyken de mola uyarılarının mesaj gibi gelmesi için:
+
+1. **SQL Editor → New query** → [`supabase/update_push.sql`](supabase/update_push.sql) dosyasının tamamını yapıştır → **Run**.
+2. **Edge Functions → Deploy a new function → Via Editor** → adı tam olarak `push-gonder` → [`supabase/functions/push-gonder/index.ts`](supabase/functions/push-gonder/index.ts) dosyasının tamamını yapıştır → **Deploy**.
+3. Fonksiyonun **Details / Settings** bölümünde **"Verify JWT with legacy secret" / "Enforce JWT verification"** seçeneğini **kapat** → Save. (Veritabanı fonksiyonu anahtarsız çağırır; fonksiyon yalnızca son 10 dakikada yazılmış ve henüz gönderilmemiş bildirimleri gönderir.)
+
+Gizli değer girmen gerekmez: gönderim anahtarı ilk çalışmada otomatik oluşturulur ve veritabanında saklanır.
+
+**Her kullanıcı kendi telefonunda bir kez:**
+- **iPhone (iOS 16.4 ve sonrası):** Safari'de uygulamayı aç → Paylaş → **Ana Ekrana Ekle** → uygulamayı **ana ekrandaki simgeden** aç → **Bildirimleri aç** → İzin ver. (Safari sekmesinden bildirim açılamaz; bu Apple'ın kuralı.)
+- **Android:** Chrome'da uygulamayı aç (ana ekrana eklemek önerilir) → **Bildirimleri aç** → İzin ver.
+
+Açılınca telefona "Bildirimler açık ✅" deneme bildirimi gelir. Profil (yöneticide Ayarlar) sayfasındaki **Dene** düğmesiyle tekrar denenebilir.
 
 ## Dosyalar
 
 - `index.html`, `app.js`, `style.css` — uygulama
 - `config.js` — Supabase bağlantı bilgileri
+- `sw.js` — arka plan çalışanı: telefon bildirimlerini gösterir
+- `supabase/update_push.sql`, `supabase/functions/push-gonder` — telefon bildirimleri
 - `supabase/schema.sql` — veritabanı tabloları, güvenlik kuralları ve hesaplama fonksiyonları
