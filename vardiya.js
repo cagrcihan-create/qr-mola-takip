@@ -61,7 +61,7 @@ const V = {
 const cfg = () => {
   const c = (V.company && V.company.shift_config) || {};
   return {
-    positions: Array.isArray(c.positions) && c.positions.length ? c.positions : DEF_POS,
+    positions: Array.isArray(c.positions) ? c.positions : DEF_POS,
     rules: Array.isArray(c.rules) ? c.rules : DEF_RULES,
     hours: c.hours || DEF_HOURS,
     holiday_pay: c.holiday_pay || {},
@@ -454,8 +454,9 @@ function staffHtml() {
       <td style="text-align:right;padding-right:20px"><button class="btn sm line" data-vx="openCal" data-a="${p.id}">Gelmedi / rapor işaretle</button></td></tr>`;
   }).join('');
   return `<section class="card col" style="gap:10px"><h2 class="h2">Pozisyonlar</h2><span class="small muted">İşletmendeki görevler. Kurallar ve personel kodları bu listeyi kullanır.</span>
-      <div class="row" style="flex-wrap:wrap;gap:8px">${P.map((x) => `<span class="row vposchip"><b class="small">${esc(x)}</b><button class="xbtn" data-vx="posRemove" data-a="${esc(x)}" aria-label="${esc(x)} pozisyonunu sil">×</button></span>`).join('')}
-        <form class="row" data-vf="posNew" style="gap:6px"><input class="inp" name="name" placeholder="Yeni pozisyon (örn. Garson)" aria-label="Yeni pozisyon adı" style="height:38px;width:220px"><button class="btn sm" type="submit">Ekle</button></form></div></section>
+      <div class="row" style="flex-wrap:wrap;gap:8px">${P.map((x) => V.posConfirm === x ? `<span class="row vposchip" style="border-color:#DC2626;background:#FEF2F2"><b class="small">${esc(x)} silinsin mi?</b><button class="btn sm" style="background:#B91C1C" data-vx="posRemoveYes" data-a="${esc(x)}">Sil</button><button class="btn sm line" data-vx="posRemoveNo">Vazgeç</button></span>` : `<span class="row vposchip"><b class="small">${esc(x)}</b><button class="xbtn" data-vx="posRemove" data-a="${esc(x)}" aria-label="${esc(x)} pozisyonunu sil">×</button></span>`).join('') || '<span class="small muted">Pozisyon yok. Yandan ekle.</span>'}
+        <form class="row" data-vf="posNew" style="gap:6px"><input class="inp" name="name" placeholder="Yeni pozisyon (örn. Garson)" aria-label="Yeni pozisyon adı" style="height:44px;width:220px"><button class="btn sm" type="submit" style="min-height:44px">Ekle</button></form></div>
+      ${V.posConfirm ? (() => { const x = V.posConfirm, u = V.staff.filter((p) => p.levels && p.levels[x]).length, r = cfg().rules.filter((q) => q.pos === x).length; return `<span class="small" style="color:#991B1B">${u || r ? `“${esc(x)}” silinince ${u ? u + ' kişiden bu pozisyon kaldırılır' : ''}${u && r ? ' ve ' : ''}${r ? r + ' kural silinir' : ''}.` : `“${esc(x)}” kimseye verilmemiş, kuralda da yok.`}</span>`; })() : ''}</section>
     <section class="card" style="padding:0"><div style="padding:16px 20px 6px"><h2 class="h2">Personel kodları</h2><span class="small muted">A deneyimli · B az deneyimli · C öğrenen. Birden fazla pozisyonda çalışana her pozisyon için ayrı seviye ver. Değişiklikler anında kaydedilir.</span></div>
       <div class="tbl-wrap"><table class="tbl" style="min-width:900px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftalık gün</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows}</tbody></table></div></section>
     <p class="small muted" style="margin:0">Yeni çalışanlar kayıt olunca burada görünür. “Çalışanlar” sekmesinde mola takibi kapalı olanlar plana alınmaz.</p>`;
@@ -739,15 +740,25 @@ const act = {
   ruleDel: async (a) => { if (await saveCfg({ rules: cfg().rules.filter((r) => r.id !== a) })) { C.toast('Kural silindi'); draw(); } },
   ruleAdd: async () => {
     const D = V.draft;
+    if (D.type === 'cover' && !cfg().positions.includes(D.pos)) return C.toast('Önce “Personel kodları”ndan bir pozisyon ekle');
     if (!['cover', 'maxdays'].includes(D.type) && cfg().rules.some((r) => r.type === D.type)) return C.toast('Bu kural zaten listede var');
     const r = Object.assign({ id: 'r' + Date.now().toString(36), on: true }, D.type === 'cover' ? { type: 'cover', pos: D.pos, slot: D.slot, days: D.days, op: D.op, n: +D.n, lvl: D.lvl } : D.type === 'maxdays' ? { type: 'maxdays', n: +D.n } : { type: D.type });
     if (await saveCfg({ rules: cfg().rules.concat([r]) })) { C.toast('Kural eklendi. Yeni plan için “Değiştir”e bas.'); draw(); }
   },
   posDel: async (a, b) => { const p = V.staff.find((x) => x.id === a); const lv = Object.assign({}, p.levels); delete lv[b]; await saveProfile(a, { levels: lv }); },
-  posRemove: async (a) => {
-    const used = V.staff.filter((p) => p.levels && p.levels[a]).length;
-    if (used && !confirm(`${a} pozisyonu ${used} kişide tanımlı. Silinsin mi? (Kişilerin bu pozisyon kaydı kalır ama kurallarda kullanılamaz.)`)) return;
-    if (await saveCfg({ positions: cfg().positions.filter((x) => x !== a) })) draw();
+  posRemove: (a) => { V.posConfirm = a; draw(); },
+  posRemoveNo: () => { V.posConfirm = null; draw(); },
+  posRemoveYes: async (a) => {
+    V.posConfirm = null;
+    for (const p of V.staff.filter((x) => x.levels && x.levels[a])) {
+      const lv = Object.assign({}, p.levels); delete lv[a];
+      const { error } = await C.S.sb.from('profiles').update({ levels: lv }).eq('id', p.id);
+      if (error) { C.toast(C.errMsg(error)); draw(); return; }
+      p.levels = lv;
+    }
+    if (await saveCfg({ positions: cfg().positions.filter((x) => x !== a), rules: cfg().rules.filter((r) => r.pos !== a) })) C.toast(`“${a}” silindi`);
+    if (V.draft.pos === a) V.draft.pos = cfg().positions[0] || '';
+    draw();
   },
   openCal: (a) => { V.cal.pid = a; V.cal.sel = []; V.sub = 'leave'; draw(); },
   calDay: (a) => { const s = V.cal.sel; V.cal.sel = s.includes(a) ? s.filter((x) => x !== a) : s.concat([a]); draw(); },
