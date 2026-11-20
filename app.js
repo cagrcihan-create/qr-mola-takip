@@ -1036,5 +1036,22 @@ app.addEventListener('submit', async (e) => {
 });
 
 if (window.QRV) window.QRV.init({ S, esc, toast, errMsg, I, tz, now });
+// Yeni sürüm kontrolü: telefon eski sayfayı önbellekte tutarsa kendini yeniler
+async function checkUpdate() {
+  try {
+    const r = await fetch('./index.html?nc=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const m = (await r.text()).match(/APP_VERSION\s*=\s*"(\d+)"/);
+    const live = m && m[1], mine = String(window.APP_VERSION || '');
+    if (!live || live === mine) return;
+    const key = 'qr_upd_' + live;
+    if (sessionStorage.getItem(key)) return; // aynı sürüm için tek deneme
+    sessionStorage.setItem(key, '1');
+    const u = new URL(location.href); u.searchParams.set('v', live);
+    location.replace(u.toString());
+  } catch (_) { /* çevrimdışı */ }
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 boot();
 })();
