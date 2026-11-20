@@ -83,3 +83,22 @@ Telefonun kendi kamerasıyla okutmak da çalışır (QR bir bağlantıdır), ama
 - `index.html`, `app.js`, `style.css` — uygulama
 - `config.js` — Supabase bağlantı bilgileri
 - `supabase/schema.sql` — veritabanı tabloları, güvenlik kuralları ve hesaplama fonksiyonları
+
+
+---
+
+## Vardiya sistemi
+
+**Kurulum (bir kez):** Supabase **SQL Editor** → New query → [`supabase/update_vardiya.sql`](supabase/update_vardiya.sql) dosyasının tamamını yapıştır → **Run**. Mevcut veriler silinmez.
+
+Yönetici panelinde **Vardiya** sekmesi:
+
+| Bölüm | Ne yapar |
+|---|---|
+| **Haftalık plan** | “Planı oluştur / Değiştir” kurallara göre kişileri dağıtır. Hücreye dokunup elle değiştir (otomatik kilitlenir), gelmedi / eksik saat / ekstra çalışma yaz. En sağda kişinin haftalık net saati, altta günlük toplamlar. **Yayınla** ile çalışanlar görür ve bildirim alır. **PDF indir** A4 yatay çıktı verir. |
+| **Kurallar** | “Barista · Açılış · her gün en az 1 A” gibi kurallar; C yalnız kalmasın, kapanıştan sonra açılış yok, haftalık gün sınırı, kapanışları eşit dağıt. |
+| **Personel kodları** | Pozisyonlar (Barista, Aşçı, Kasa, … eklenebilir), kişi başına pozisyon + seviye (A deneyimli, B az deneyimli, C öğrenen), haftalık gün, sabit vardiya. |
+| **İzin · Rapor · Gelmedi** | Personeli seç → takvimde günlere dokun → Gelmedi / Raporlu / Yıllık izin. Geçmiş ve ileri tarih. |
+| **Aylık puantaj** | Gün gün ✓ geldi, 2× bayramda çalıştı, X gelmedi, Y yıllık, R raporlu. “Geldi” QR girişinden gelir; planlı olup girişi olmayan otomatik “Gelmedi” sayılır. Resmi tatil listesi ve çift yevmiye ayarı (15 Temmuz ve arifeler normal). PDF çıktısı. |
+
+Çalışan uygulamasında **Vardiyam** sekmesi: bu hafta ve gelecek haftanın yayınlanmış planı, toplam saat, PDF. Ana sayfada “Bugünkü vardiyan” kartı.

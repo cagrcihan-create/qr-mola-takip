@@ -32,6 +32,7 @@ const I = {
   cup: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z"/><path d="M6 2v2M10 2v2M14 2v2"/></svg>',
   check: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:36px;height:36px"><path d="M20 6L9 17l-5-5"/></svg>',
   warn: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  cal: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   logo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true" style="width:26px;height:26px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM17 20h4v-3"/></svg>'
 };
 const ST = { working: 'Çalışıyor', break: 'Molada', leave: 'İzinli', absent: 'Giriş yok', done: 'Çıkış yaptı', not_yet: 'Giriş yok', off: 'Giriş yok' };
@@ -296,15 +297,17 @@ function renderEmployee() {
   if (S.view === 'history') body = renderHistoryBody();
   else if (S.view === 'notifs') body = renderNotifsBody();
   else if (S.view === 'profile') body = renderProfileBody();
+  else if (S.view === 'shift') body = window.QRV ? window.QRV.empBody() : '<div class="err">Vardiya modülü yüklenemedi.</div>';
   else body = renderHomeBody();
   app.innerHTML = `<div class="phone">${body}<div class="grow"></div>${empNav()}</div>`;
   if (S.view === 'history') loadHistory();
   if (S.view === 'notifs') loadNotifs();
+  if (window.QRV) { if (S.view === 'shift') window.QRV.empLoad(); else if (S.view === 'home') window.QRV.empToday(); }
   tick();
 }
 function empNav() {
   const b = (v, ic, t, badge) => `<button class="${S.view === v ? 'on' : ''}" data-act="empView" data-v="${v}" aria-current="${S.view === v ? 'page' : 'false'}" style="position:relative">${ic}${t}${badge ? `<span class="dot-badge" style="top:0;right:12px">${badge}</span>` : ''}</button>`;
-  return `<nav class="bottomnav" aria-label="Alt menü">${b('home', I.home, 'Ana sayfa')}${b('history', I.clock, 'Geçmiş')}${b('notifs', I.bell, 'Bildirimler', S.me.unread || '')}${b('profile', I.user, 'Profil')}</nav>`;
+  return `<nav class="bottomnav" aria-label="Alt menü">${b('home', I.home, 'Ana sayfa')}${b('shift', I.cal, 'Vardiyam')}${b('history', I.clock, 'Geçmiş')}${b('notifs', I.bell, 'Bildirimler', S.me.unread || '')}${b('profile', I.user, 'Profil')}</nav>`;
 }
 function scanLabel(st) {
   if (st === 'break') return 'QR okut · Moladan dön';
@@ -339,6 +342,7 @@ function renderHomeBody() {
       <div class="bar"><div id="lv-leftbar" style="width:100%"></div></div>
       <span class="small" id="lv-used"></span>
     </div>
+    <div id="v-today"></div>
     ${inOutCard(m)}
     <div class="card"><div class="row between" style="margin-bottom:6px"><h2 class="h2">Bugünkü molalar</h2><span class="small muted">${rows.length} mola</span></div>${list || '<p class="muted small" style="margin:6px 0 0">Bugün henüz molaya çıkmadın.</p>'}</div>
     ${perm}
@@ -580,7 +584,7 @@ function teamLive(r) {
 }
 function renderAdmin() {
   stopScanner();
-  const tabs = [['live', 'Canlı durum'], ['reports', 'Raporlar'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
+  const tabs = [['live', 'Canlı durum'], ['shift', 'Vardiya'], ['reports', 'Raporlar'], ['staff', 'Çalışanlar'], ['settings', 'Ayarlar']];
   const unread = S.adminNotifs.filter((n) => !n.read_at).length;
   app.innerHTML = `
   <header class="top"><div class="wrap row between" style="flex-wrap:wrap">
@@ -600,6 +604,7 @@ function renderAdmin() {
 function renderAdminTab() {
   const box = document.getElementById('admin-main'); if (!box) return;
   if (S.tab === 'live') { box.innerHTML = liveHtml(); loadTeam(); }
+  else if (S.tab === 'shift') { if (window.QRV) window.QRV.adminTab(box); else box.innerHTML = '<div class="err">Vardiya modülü yüklenemedi. Sayfayı yenile.</div>'; }
   else if (S.tab === 'reports') { box.innerHTML = reportsHtml(); }
   else if (S.tab === 'staff') { box.innerHTML = '<p class="muted">Yükleniyor…</p>'; loadStaff(); }
   else if (S.tab === 'settings') { box.innerHTML = '<p class="muted">Yükleniyor…</p>'; loadSettings(); }
@@ -950,7 +955,7 @@ async function poll(force) {
 // ------------------------------------------------------------------ olaylar
 const actions = {
   reload: () => location.reload(),
-  logout: async () => { await stopScanner(); S.asEmployee = false; S.view = 'home'; await S.sb.auth.signOut(); },
+  logout: async () => { if (window.QRV) window.QRV.reset(); await stopScanner(); S.asEmployee = false; S.view = 'home'; await S.sb.auth.signOut(); },
   authTab: (b) => { authState.tab = b.dataset.v; authState.err = ''; authState.msg = ''; renderAuth(); },
   authMethod: (b) => { authState.method = b.dataset.v; renderAuth(); },
   authMode: (b) => { authState.mode = b.dataset.v; renderAuth(); },
@@ -1030,5 +1035,6 @@ app.addEventListener('submit', async (e) => {
   }
 });
 
+if (window.QRV) window.QRV.init({ S, esc, toast, errMsg, I, tz, now });
 boot();
 })();
