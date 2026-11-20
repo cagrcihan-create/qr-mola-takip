@@ -96,8 +96,8 @@ Yönetici panelinde **Vardiya** sekmesi:
 | Bölüm | Ne yapar |
 |---|---|
 | **Haftalık plan** | “Planı oluştur / Değiştir” kurallara göre kişileri dağıtır. Hücreye dokunup elle değiştir (otomatik kilitlenir), gelmedi / eksik saat / ekstra çalışma yaz. En sağda kişinin haftalık net saati, altta günlük toplamlar. **Yayınla** ile çalışanlar görür ve bildirim alır. **PDF indir** A4 yatay çıktı verir. |
-| **Kurallar** | “Barista · Açılış · her gün en az 1 A” gibi kurallar; C yalnız kalmasın, kapanıştan sonra açılış yok, haftalık gün sınırı, kapanışları eşit dağıt. |
-| **Personel kodları** | Pozisyonlar (Barista, Aşçı, Kasa, … eklenebilir), kişi başına pozisyon + seviye (A deneyimli, B az deneyimli, C öğrenen), haftalık gün, sabit vardiya. |
+| **Kurallar** | Gruplara ayrılmış liste; her kural açılıp kapatılır, **düzenlenir**, **silinir**. “Barista · Açılış · her gün en az 1 A” ya da “Mutfak (tüm grup) · Açılış en az 2 kişi”; C yalnız kalmasın, kapanıştan sonra açılış yok, haftalık gün sınırı, kapanışları eşit dağıt. |
+| **Personel kodları** | **Gruplar** (örn. Mutfak: Aşçı, Pastacı · Bar: Barista, Kasa); her grubun kendi varsayılan vardiya saatleri. Planda grup seçip sadece o grubu “Değiştir”, PDF’ini al. Pozisyonlar sınırsız, kişi başına pozisyon + seviye (A deneyimli, B az deneyimli, C öğrenen), haftalık gün, sabit vardiya. |
 | **İzin · Rapor · Gelmedi** | Personeli seç → takvimde günlere dokun → Gelmedi / Raporlu / Yıllık izin. Geçmiş ve ileri tarih. |
 | **Aylık puantaj** | Gün gün ✓ geldi, 2× bayramda çalıştı, X gelmedi, Y yıllık, R raporlu. “Geldi” QR girişinden gelir; planlı olup girişi olmayan otomatik “Gelmedi” sayılır. Resmi tatil listesi ve çift yevmiye ayarı (15 Temmuz ve arifeler normal). PDF çıktısı. |
 
