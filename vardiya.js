@@ -68,7 +68,8 @@ function cfgFrom(c) {
     loose: (Array.isArray(c.loose_positions) ? c.loose_positions : []).filter((x) => !groups.some((g) => g.positions.includes(x))),
     rules: Array.isArray(c.rules) ? c.rules : DEF_RULES,
     holiday_pay: c.holiday_pay || {},
-    holiday_extra: Array.isArray(c.holiday_extra) ? c.holiday_extra : []
+    holiday_extra: Array.isArray(c.holiday_extra) ? c.holiday_extra : [],
+    offdays: c.offdays && typeof c.offdays === 'object' ? c.offdays : {}
   };
 }
 let _cfgKey = null, _cfgVal = null;
@@ -117,7 +118,8 @@ function leaveMapWeek(ws) {
   V.leaves.forEach((l) => { for (let d = 0; d < 7; d++) { const iso = addD(ws, d); if (iso >= l.day_from && iso <= l.day_to) m[l.user_id + '|' + d] = lcode(l.kind); } });
   return m;
 }
-const G = () => ({ staff: staffG(), rules: cfg().rules, leave: leaveMapWeek(V.week), asg: V.plan.asg || {}, locks: V.plan.locks || {} });
+const G = () => ({ staff: staffG(), rules: cfg().rules, offd: cfg().offdays, leave: leaveMapWeek(V.week), asg: V.plan.asg || {}, locks: V.plan.locks || {} });
+const isOff = (pid, d) => { const o = cfg().offdays[pid]; return Array.isArray(o) && o.includes(d); };
 
 // ------------------------------------------------------------------ plan motoru
 function rng(seed) { let t = seed >>> 0; return () => { t = (t + 0x6D2B79F5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; }
@@ -145,6 +147,7 @@ function attempt(g, rnd) {
     const k = p.id + '|' + d;
     if (a[k] || off[k] || g.leave[k]) return false;
     if (cnt(a, p.id) >= Math.min(p.target, maxD)) return false;
+    if (g.offd && Array.isArray(g.offd[p.id]) && g.offd[p.id].includes(d)) return false;
     if (clopen) {
       const prev = a[p.id + '|' + (d - 1)], next = a[p.id + '|' + (d + 1)];
       if (s === 'ac' && prev && prev.s === 'ka') return false;
@@ -259,6 +262,7 @@ function evaluate(g) {
       if (r.mode === 'must' && (!x || (r.slot !== 'all' && x.s !== r.slot))) add(r.id, `${nm(p.id)}: ${DN[d]} ${r.slot === 'all' ? 'çalışmalı' : SN[r.slot] + ' yapmalı'}`, g.leave[k] ? 'O gün izin/rapor kaydı var.' : 'Gün hakkı ya da başka bir kural engelliyor.', [k], [], d);
     });
   });
+  g.staff.forEach((p) => { const o = g.offd && g.offd[p.id]; if (Array.isArray(o)) o.forEach((d) => { const k = p.id + '|' + d; if (a[k]) add('off', `${nm(p.id)}: ${DN[d]} sabit haftalık izni ama vardiyada`, '“Personel kodları”ndaki haftalık izin günü.', [k], [], d); }); });
   g.staff.forEach((p) => { for (let d = 0; d < 7; d++) { const k = p.id + '|' + d; if (a[k] && g.leave[k]) add('leave', `${nm(p.id)}: ${DN[d]} ${LT(g.leave[k])} ama vardiyada`, 'İzin/rapor kaydıyla çakışıyor.', [k], [], d); } });
   let softScore = 0;
   if (g.rules.some((r) => r.on && r.type === 'fair')) {
@@ -396,7 +400,7 @@ function planHtml() {
       let top, sub, cls;
       if (x) { const hh = cellH(x); top = SN[x.s]; sub = `${hh[0]}–${hh[1]}${x.h ? ' ✎' : ''}` + (multi || other ? ' · ' + x.p : ''); cls = 's-' + x.s + (other ? ' other' : ''); }
       else if (lv) { top = LK[lv][0]; sub = 'Planlanamaz'; cls = LK[lv][1] + ' dashed'; }
-      else { top = aj.plus ? 'Ekstra' : 'Haftalık izin'; sub = aj.plus ? 'Vardiya dışı' : (V.plan.locks[k] ? 'Elle verildi' : '+ vardiya ver'); cls = 's-off'; }
+      else { top = aj.plus ? 'Ekstra' : 'Haftalık izin'; sub = aj.plus ? 'Vardiya dışı' : isOff(p.id, d) ? 'Sabit izin günü' : (V.plan.locks[k] ? 'Elle verildi' : '+ vardiya ver'); cls = 's-off' + (isOff(p.id, d) && !aj.plus ? ' fixoff' : ''); }
       const tag = aj.tags.length ? `<span class="adjtag ${aj.gel || (aj.minus && !aj.plus) ? 'neg' : 'pos'}">${esc(aj.tags.join(' · '))}</span>` : '';
       return `<td><button class="vc ${cls}${ev.badCells[k] ? ' bad' : ''}${sel ? ' sel' : ''}${addD(V.week, d) === today ? ' today' : ''}" data-vx="cell" data-a="${k}" aria-label="${esc(p.full_name)}, ${dn}: ${esc(top)}${V.plan.locks[k] ? ', kilitli' : ''}. Değiştirmek için dokun.">
         <span class="row between" style="width:100%;gap:4px"><b>${esc(top)}</b>${V.plan.locks[k] ? '<svg class="ic" style="width:13px;height:13px" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : ''}</span><span>${esc(sub)}</span>${tag}</button></td>`;
@@ -446,7 +450,7 @@ function planHtml() {
             <tbody>${rows}
               <tr class="vsum"><th scope="row" style="padding-left:16px">Günlük toplam<br><span class="xs muted" style="font-weight:500">mola hariç</span></th>${dayH.map((h, d) => `<td><b class="num">${hNum(h)} sa</b><br><span class="xs muted">${dayP[d]} kişi</span></td>`).join('')}<td class="vtot" style="background:var(--line)"><b class="num" style="font-size:17px">${hNum(weekH)} sa</b></td></tr>
             </tbody></table></div>
-          <div class="row xs" style="flex-wrap:wrap;gap:12px;padding:12px 16px;border-top:1px solid var(--soft)"><span class="lv s-ac">Açılış</span><span class="lv s-og">Öğlen</span><span class="lv s-ka">Kapanış</span><span class="lv l-yillik">İzin / rapor</span><span><b style="color:#DC2626">Kırmızı çerçeve</b> = kural bozuk</span><span>Hücreye dokun → elle değiştir, kilitle, gelmedi/eksik/ekstra yaz</span></div>
+          <div class="row xs" style="flex-wrap:wrap;gap:12px;padding:12px 16px;border-top:1px solid var(--soft)"><span class="lv s-ac">Açılış</span><span class="lv s-og">Öğlen</span><span class="lv s-ka">Kapanış</span><span class="lv l-yillik">İzin / rapor</span><span><b style="color:#DC2626">Kırmızı çerçeve</b> = kural bozuk</span><span>Hücreye dokun → elle değiştir, kilitle, gelmedi/eksik/ekstra yaz</span><span><b>Basılı tut ve sürükle</b> → aynı kişinin iki gününü yer değiştir</span></div>
         </section>
         ${empty ? '' : `<section class="card" style="padding:0" aria-label="Dilim kapsaması"><div style="padding:16px 16px 4px"><h2 class="h2">Dilim kapsaması</h2><span class="small muted">Her dilimde hangi seviyeden kaç kişi var. Kırmızı = bir kural sağlanmıyor.</span></div>
           <div class="tbl-wrap"><table class="tbl vcov" style="min-width:860px"><tbody>${cov}</tbody></table></div></section>`}
@@ -468,7 +472,7 @@ function editHtml(g, ev) {
   const opt = (label, sel, val) => `<button class="btn sm ${sel ? '' : 'line'}" data-vx="setCell" data-a="${esc(val)}" aria-pressed="${sel}">${esc(label)}</button>`;
   const opts = [opt('Haftalık izin', !x, '')].concat(pos.flatMap((ps) => SL.map((s) => opt(`${SN[s]} ${range(hoursPos(ps), s)}${pos.length > 1 ? ' · ' + ps : ''}`, !!x && x.s === s && x.p === ps, s + '|' + ps)))).join('');
   const mine = V.adj.filter((a) => a.user_id === pid && a.day === addD(V.week, d));
-  const warn = lv ? `Bu gün “${LK[lv][0]}” kaydı var. Vardiya atarsan kural ihlali olarak işaretlenir.` : p.fixed_slot ? `Sabit vardiyası: ${SN[p.fixed_slot]}. Otomatik planda hep bu dilim verilir.` : '';
+  const warn = lv ? `Bu gün “${LK[lv][0]}” kaydı var. Vardiya atarsan kural ihlali olarak işaretlenir.` : isOff(pid, d) ? 'Bu gün kişinin sabit haftalık izin günü. Vardiya verirsen uyarı olarak işaretlenir.' : p.fixed_slot ? `Sabit vardiyası: ${SN[p.fixed_slot]}. Otomatik planda hep bu dilim verilir.` : '';
   const A = V.adjDraft;
   return `<section class="card col" style="border:2px solid var(--ink);gap:12px" aria-label="Hücre düzenleme">
     <div class="row between" style="flex-wrap:wrap"><div class="col" style="gap:2px"><b style="font-size:16px">${esc(p.full_name)} · ${DN[d]} ${dLong(addD(V.week, d))}</b><span class="small muted">${pos.map((ps) => ps + ' ' + p.levels[ps]).join(', ') || 'Pozisyon yok'} · bu hafta ${cnt(V.plan.asg, pid)}/${p.target_days ?? 5} gün</span></div>
@@ -578,6 +582,7 @@ function staffHtml() {
       <td><div class="row" style="flex-wrap:wrap;gap:8px">${have.map((ps) => `<span class="row vposchip"><span class="small">${esc(ps)}</span><select class="inp" data-vc="lvl" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)} ${esc(ps)} seviyesi" style="height:34px;width:58px;font-weight:700;padding:0 6px">${['A', 'B', 'C'].map((l) => `<option ${lv[ps] === l ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="xbtn" data-vx="posDel" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)}: ${esc(ps)} pozisyonunu kaldır">×</button></span>`).join('')}
         ${addOpts ? `<select class="inp" data-vc="posAdd" data-a="${p.id}" aria-label="Pozisyon ekle" style="height:34px;width:auto"><option value="">+ Pozisyon ekle</option>${addOpts}</select>` : ''}</div></td>
       <td><select class="inp" data-vc="target" data-a="${p.id}" aria-label="Haftalık gün" style="height:38px;width:auto">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${(p.target_days ?? 5) === n ? 'selected' : ''}>${n} gün</option>`).join('')}</select></td>
+      <td><div class="voff" role="group" aria-label="${esc(p.full_name)} haftalık izin günleri">${DN.map((dn, d) => { const on = isOff(p.id, d); return `<button class="${on ? 'on' : ''}" data-vx="offDay" data-a="${p.id}" data-b="${d}" aria-pressed="${on}" title="${dn}">${dn.slice(0, 2)}</button>`; }).join('')}</div></td>
       <td><select class="inp" data-vc="fixed" data-a="${p.id}" aria-label="Sabit vardiya" style="height:38px;width:auto"><option value="">Yok (döner)</option>${SL.map((s) => `<option value="${s}" ${p.fixed_slot === s ? 'selected' : ''}>Hep ${SN[s]}</option>`).join('')}</select></td>
       <td style="text-align:right;padding-right:20px"><button class="btn sm line" data-vx="openCal" data-a="${p.id}">Gelmedi / rapor işaretle</button></td></tr>`;
   }).join('');
@@ -595,7 +600,7 @@ function staffHtml() {
     </section>
     ${grpChips()}
     <section class="card" style="padding:0"><div style="padding:16px 20px 6px"><h2 class="h2">Personel kodları${grp ? ' · ' + esc(grp.name) : ''}</h2><span class="small muted">A deneyimli · B az deneyimli · C öğrenen. Birden fazla pozisyonda çalışana her pozisyon için ayrı seviye ver. Değişiklikler anında kaydedilir.</span></div>
-      <div class="tbl-wrap"><table class="tbl" style="min-width:900px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftalık gün</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:1080px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftalık gün</th><th>Haftalık izin günleri</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
     <p class="small muted" style="margin:0">Yeni çalışanlar kayıt olunca burada görünür. “Çalışanlar” sekmesinde mola takibi kapalı olanlar plana alınmaz.</p>`;
 }
 
@@ -925,6 +930,13 @@ const act = {
     if (V.draft.pos === a) V.draft.pos = cfg().positions[0] || '';
     draw();
   },
+  offDay: async (pid, ds) => {
+    const d = +ds, cur = (cfg().offdays[pid] || []).slice(), on = cur.includes(d);
+    const next = on ? cur.filter((x) => x !== d) : cur.concat([d]).sort();
+    const off = Object.assign({}, cfg().offdays, { [pid]: next }); if (!next.length) delete off[pid];
+    const p = V.staff.find((x) => x.id === pid);
+    if (await saveCfg({ offdays: off })) { C.toast(`${first(p && p.full_name)}: ${next.length ? next.map((x) => DN[x]).join(', ') + ' haftalık izin' : 'sabit izin günü yok'}`); draw(); }
+  },
   posTick: async (gid, pos) => {
     const tgt = grpById(gid); if (!tgt) return;
     const on = tgt.positions.includes(pos), from = on ? null : groupOf(pos);
@@ -1004,9 +1016,68 @@ const submit = {
     if (await saveCfg({ holiday_extra: cfg().holiday_extra.filter((h) => h.iso !== f.iso).concat([{ iso: f.iso, name: String(f.name).trim() }]) })) { C.toast('Tatil eklendi'); draw(); }
   }
 };
+// ---- vardiya hücrelerini sürükleyerek yer değiştirme (dokunmatik: basılı tut; fare: tut-sürükle)
+function swapCells(a, b) {
+  const [pa, da] = a.split('|'), [pb, db] = b.split('|');
+  if (pa !== pb) { C.toast('Sadece aynı kişinin günleri yer değiştirebilir'); return; }
+  const lm = leaveMapWeek(V.week);
+  if (lm[a] || lm[b]) { C.toast('İzin / rapor günü sürüklenemez'); return; }
+  const xa = V.plan.asg[a], xb = V.plan.asg[b];
+  if (!xa && !xb) return;
+  if (xb) V.plan.asg[a] = xb; else delete V.plan.asg[a];
+  if (xa) V.plan.asg[b] = xa; else delete V.plan.asg[b];
+  V.plan.locks[a] = true; V.plan.locks[b] = true; V.edit = null;
+  scheduleSave(); draw();
+  const p = V.staff.find((x) => x.id === pa);
+  C.toast(`${first(p && p.full_name)}: ${DN[+da]} ↔ ${DN[+db]} yer değiştirdi`);
+}
+function wireDrag() {
+  let D = null;
+  const cellAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest('.vc[data-vx="cell"]'); };
+  const start = (el, x, y, touch) => {
+    if (!el || el.classList.contains('dashed')) return;
+    D = { src: el.dataset.a, el, x, y, on: false, tgt: null, ghost: null };
+    if (touch) D.timer = setTimeout(activate, 300);
+  };
+  const activate = () => {
+    if (!D) return; D.on = true; D.el.classList.add('dragging');
+    const r = D.el.getBoundingClientRect(), g = D.el.cloneNode(true);
+    g.className += ' vghost'; g.style.width = r.width + 'px'; g.style.left = (D.x - r.width / 2) + 'px'; g.style.top = (D.y - 30) + 'px';
+    document.body.appendChild(g); D.ghost = g; document.body.classList.add('vdragging');
+    if (navigator.vibrate) try { navigator.vibrate(12); } catch (_) {}
+  };
+  const move = (x, y, e) => {
+    if (!D) return;
+    if (!D.on) { if (Math.hypot(x - D.x, y - D.y) > 8) { if (D.timer) { clearTimeout(D.timer); D = null; return; } activate(); } else return; }
+    if (e.cancelable) e.preventDefault();
+    D.ghost.style.left = (x - D.ghost.offsetWidth / 2) + 'px'; D.ghost.style.top = (y - 30) + 'px';
+    const t = cellAt(x, y), ok = t && t !== D.el && t.dataset.a.split('|')[0] === D.src.split('|')[0];
+    if (D.tgt && D.tgt !== t) D.tgt.classList.remove('droptgt', 'dropno');
+    D.tgt = t && t !== D.el ? t : null;
+    if (D.tgt) D.tgt.classList.add(ok ? 'droptgt' : 'dropno');
+  };
+  const end = () => {
+    if (!D) return; clearTimeout(D.timer);
+    const d = D; D = null;
+    if (!d.on) return;
+    d.el.classList.remove('dragging'); if (d.ghost) d.ghost.remove(); document.body.classList.remove('vdragging');
+    if (d.tgt) d.tgt.classList.remove('droptgt', 'dropno');
+    V._noClick = Date.now();
+    if (d.tgt) swapCells(d.src, d.tgt.dataset.a);
+  };
+  document.addEventListener('touchstart', (e) => { const t = e.touches[0], el = e.target.closest && e.target.closest('.vc[data-vx="cell"]'); if (el && e.touches.length === 1) start(el, t.clientX, t.clientY, true); }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if (!D) return; const t = e.touches[0]; move(t.clientX, t.clientY, e); }, { passive: false });
+  document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
+  document.addEventListener('mousedown', (e) => { if (e.button !== 0) return; const el = e.target.closest && e.target.closest('.vc[data-vx="cell"]'); if (el) start(el, e.clientX, e.clientY, false); });
+  document.addEventListener('mousemove', (e) => { if (D) move(e.clientX, e.clientY, e); });
+  document.addEventListener('mouseup', end);
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest && e.target.closest('.vc[data-vx="cell"]')) e.preventDefault(); });
+}
 function wire() {
+  wireDrag();
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-vx]'); if (!b || b.disabled) return;
+    if (b.dataset.vx === 'cell' && Date.now() - (V._noClick || 0) < 450) { e.preventDefault(); return; }
     const fn = act[b.dataset.vx]; if (!fn) return;
     e.preventDefault();
     Promise.resolve(fn(b.dataset.a, b.dataset.b)).catch((err) => C.toast(C.errMsg(err)));
