@@ -65,6 +65,7 @@ function cfgFrom(c) {
     .map((g) => ({ id: String(g.id), name: String(g.name || 'Grup'), positions: Array.isArray(g.positions) ? g.positions : [], hours: g.hours && g.hours.ac ? g.hours : (c.hours && c.hours.ac ? c.hours : DEF_HOURS) }));
   return {
     groups, positions: groups.flatMap((g) => g.positions),
+    loose: (Array.isArray(c.loose_positions) ? c.loose_positions : []).filter((x) => !groups.some((g) => g.positions.includes(x))),
     rules: Array.isArray(c.rules) ? c.rules : DEF_RULES,
     holiday_pay: c.holiday_pay || {},
     holiday_extra: Array.isArray(c.holiday_extra) ? c.holiday_extra : []
@@ -83,7 +84,9 @@ function hoursFor(gid, wh, c) {
 }
 const hoursPos = (pos, wh, c) => { c = c || cfg(); const g = groupOf(pos, c); return hoursFor(g ? g.id : '', wh === undefined ? V.hours : wh, c); };
 const weekHours = () => { const out = { g: {} }; cfg().groups.forEach((g) => { out.g[g.id] = JSON.parse(JSON.stringify(hoursFor(g.id, V.hours))); }); return out; };
-const saveGroups = (groups, extra) => saveCfg(Object.assign({ groups, positions: groups.flatMap((g) => g.positions) }, extra || {}));
+const saveGroups = (groups, extra) => { const inG = groups.flatMap((g) => g.positions); const loose = ((extra && extra.loose_positions) || cfg().loose).filter((x) => !inG.includes(x)); return saveCfg(Object.assign({ groups, positions: inG }, extra || {}, { loose_positions: loose })); };
+const allPositions = () => { const out = []; const push = (x) => { if (x && !out.includes(x)) out.push(x); }; cfg().groups.forEach((g) => g.positions.forEach(push)); cfg().loose.forEach(push); V.staff.forEach((p) => Object.keys(p.levels || {}).forEach(push)); return out; };
+const loosePositions = () => allPositions().filter((x) => !groupOf(x));
 const selGroup = () => {
   const gs = (V.grps || []).map((id) => grpById(id)).filter(Boolean); if (!gs.length) return null;
   return { id: gs.map((g) => g.id).join(','), ids: gs.map((g) => g.id), name: gs.map((g) => g.name).join(' + '), positions: gs.flatMap((g) => g.positions) };
@@ -510,7 +513,7 @@ function rulesHtml() {
     .concat([{ title: 'Kişiye özel', sub: 'Belirli bir çalışan için: o gün çalışmaz, o dilime yazılmaz ya da mutlaka çalışır', list: R.filter((r) => r.type === 'person'), person: true }])
     .concat([{ title: 'Herkes için', sub: 'Tüm gruplarda geçerli kişi kuralları', list: R.filter((r) => r.type !== 'cover' && r.type !== 'person') }])
     .concat(R.some((r) => r.type === 'cover' && !ruleGroup(r)) ? [{ title: 'Pozisyonu silinmiş kurallar', sub: 'Pozisyonu artık olmadığı için çalışmaz; düzenle ya da sil', list: R.filter((r) => r.type === 'cover' && !ruleGroup(r)) }] : []);
-  const posOpts = groups.map((gg) => `<optgroup label="${esc(gg.name)}"><option value="g:${esc(gg.id)}" ${D.pos === 'g:' + gg.id ? 'selected' : ''}>${esc(gg.name)} — tüm grup</option>${gg.positions.map((p) => `<option value="${esc(p)}" ${D.pos === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</optgroup>`).join('');
+  const posOpts = groups.map((gg) => `<optgroup label="${esc(gg.name)}"><option value="g:${esc(gg.id)}" ${D.pos === 'g:' + gg.id ? 'selected' : ''}>${esc(gg.name)} — tüm grup</option>${gg.positions.map((p) => `<option value="${esc(p)}" ${D.pos === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</optgroup>`).join('') + (loosePositions().length ? `<optgroup label="Grupsuz">${loosePositions().map((p) => `<option value="${esc(p)}" ${D.pos === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</optgroup>` : '');
   const edit = V.editRule && R.find((r) => r.id === V.editRule);
   return `<div class="split">
     <div class="main col" style="gap:16px">
@@ -550,24 +553,27 @@ function staffHtml() {
   const chip = (x) => V.posConfirm === x
     ? `<span class="row vposchip" style="border-color:#DC2626;background:#FEF2F2"><b class="small">${esc(x)} silinsin mi?</b><button class="btn sm" style="background:#B91C1C" data-vx="posRemoveYes" data-a="${esc(x)}">Sil</button><button class="btn sm line" data-vx="posRemoveNo">Vazgeç</button></span>`
     : `<span class="row vposchip"><b class="small">${esc(x)}</b><button class="xbtn" data-vx="posRemove" data-a="${esc(x)}" aria-label="${esc(x)} pozisyonunu sil">×</button></span>`;
-  const posWarn = (gg) => { const x = V.posConfirm; if (!x || !gg.positions.includes(x)) return ''; const u = V.staff.filter((p) => p.levels && p.levels[x]).length, r = cfg().rules.filter((q) => q.pos === x).length; return `<span class="small" style="color:#991B1B">${u || r ? `“${esc(x)}” silinince ${u ? u + ' kişiden bu pozisyon kaldırılır' : ''}${u && r ? ' ve ' : ''}${r ? r + ' kural silinir' : ''}.` : `“${esc(x)}” kimseye verilmemiş, kuralda da yok.`}</span>`; };
+  const ALL = allPositions();
   const gcard = (gg) => `<div class="vgcard">
       <div class="row between" style="flex-wrap:wrap;gap:8px">
-        <input class="inp" value="${esc(gg.name)}" data-vc="grpName" data-a="${esc(gg.id)}" aria-label="Grup adı" style="height:44px;font-weight:700;font-size:16px;max-width:240px">
+        <label class="f grow" style="min-width:160px;margin:0">Grup adı<input class="inp" value="${esc(gg.name)}" data-vc="grpName" data-a="${esc(gg.id)}" style="height:44px;font-weight:700;font-size:16px"></label>
         ${V.grpConfirm === gg.id
-          ? `<span class="row" style="gap:6px;flex-wrap:wrap"><span class="small" style="color:#991B1B;font-weight:600">Grup${gg.positions.length ? ' ve ' + gg.positions.length + ' pozisyonu' : ''} silinsin mi?</span><button class="btn sm" style="background:#B91C1C" data-vx="grpDelYes" data-a="${esc(gg.id)}">Sil</button><button class="btn sm line" data-vx="grpDelNo">Vazgeç</button></span>`
-          : `<button class="btn sm line" data-vx="grpDel" data-a="${esc(gg.id)}" style="color:#B91C1C">Grubu sil</button>`}
+          ? `<span class="row" style="gap:6px;flex-wrap:wrap"><span class="small" style="color:#991B1B;font-weight:600">Grup silinsin mi?</span><button class="btn sm" style="background:#B91C1C" data-vx="grpDelYes" data-a="${esc(gg.id)}">Sil</button><button class="btn sm line" data-vx="grpDelNo">Vazgeç</button></span>`
+          : `<button class="btn sm line" data-vx="grpDel" data-a="${esc(gg.id)}" style="color:#B91C1C;align-self:flex-end">Grubu sil</button>`}
       </div>
-      <div class="row" style="flex-wrap:wrap;gap:8px">${gg.positions.map(chip).join('') || '<span class="small muted">Bu grupta pozisyon yok.</span>'}</div>
-      ${posWarn(gg)}
-      <form class="row" data-vf="posNew" style="gap:6px"><input type="hidden" name="gid" value="${esc(gg.id)}"><input class="inp" name="name" placeholder="Pozisyon ekle (örn. Pastacı)" aria-label="${esc(gg.name)} grubuna pozisyon ekle" style="height:44px;flex:1;min-width:150px"><button class="btn sm" type="submit" style="min-height:44px">Ekle</button></form>
+      <div class="col" style="gap:6px"><span class="xs muted" style="font-weight:600">Bu gruptaki pozisyonlar · tikle</span>
+        <div class="vticks">${ALL.map((x) => { const on = gg.positions.includes(x), og = on ? null : groupOf(x);
+          return `<button class="vtick${on ? ' on' : ''}" data-vx="posTick" data-a="${esc(gg.id)}" data-b="${esc(x)}" role="checkbox" aria-checked="${on}"><i aria-hidden="true">${on ? '✓' : ''}</i><span>${esc(x)}</span>${og ? `<small>${esc(og.name)}’da</small>` : ''}</button>`; }).join('') || '<span class="small muted">Henüz pozisyon yok. Aşağıdan ekle.</span>'}</div>
+      </div>
       <div class="col" style="gap:6px"><span class="xs muted" style="font-weight:600">Varsayılan vardiya saatleri</span>
-        ${SL.map((s) => `<div class="row" style="gap:6px"><span class="lv s-${s}" style="min-width:64px;justify-content:center">${SN[s]}</span><input class="inp" type="time" value="${gg.hours[s][0]}" data-vc="ghour" data-g="${esc(gg.id)}" data-a="${s}" data-b="0" aria-label="${esc(gg.name)} ${SN[s]} başlangıç" style="height:40px;width:112px"><span>–</span><input class="inp" type="time" value="${gg.hours[s][1]}" data-vc="ghour" data-g="${esc(gg.id)}" data-a="${s}" data-b="1" aria-label="${esc(gg.name)} ${SN[s]} bitiş" style="height:40px;width:112px"></div>`).join('')}
+        ${SL.map((s) => `<div class="row" style="gap:6px"><span class="lv s-${s}" style="min-width:60px;justify-content:center;flex-shrink:0">${SN[s]}</span><input class="inp" type="time" value="${gg.hours[s][0]}" data-vc="ghour" data-g="${esc(gg.id)}" data-a="${s}" data-b="0" aria-label="${esc(gg.name)} ${SN[s]} başlangıç" style="height:40px;flex:1;min-width:0;max-width:130px"><span>–</span><input class="inp" type="time" value="${gg.hours[s][1]}" data-vc="ghour" data-g="${esc(gg.id)}" data-a="${s}" data-b="1" aria-label="${esc(gg.name)} ${SN[s]} bitiş" style="height:40px;flex:1;min-width:0;max-width:130px"></div>`).join('')}
       </div>
     </div>`;
+  const posWarn = () => { const x = V.posConfirm; if (!x) return ''; const u = V.staff.filter((p) => p.levels && p.levels[x]).length, r = cfg().rules.filter((q) => q.pos === x).length; return `<span class="small" style="color:#991B1B">${u || r ? `“${esc(x)}” silinince ${u ? u + ' kişiden bu pozisyon kaldırılır' : ''}${u && r ? ' ve ' : ''}${r ? r + ' kural silinir' : ''}.` : `“${esc(x)}” kimseye verilmemiş, kuralda da yok.`}</span>`; };
+  const loose = loosePositions();
   const rows = V.staff.filter((p) => p.active && inGroupStaff(p, grp)).map((p) => {
     const lv = p.levels || {}, have = Object.keys(lv);
-    const addOpts = groups.map((gg) => { const can = gg.positions.filter((x) => !have.includes(x)); return can.length ? `<optgroup label="${esc(gg.name)}">${can.map((x) => `<option>${esc(x)}</option>`).join('')}</optgroup>` : ''; }).join('');
+    const addOpts = groups.map((gg) => { const can = gg.positions.filter((x) => !have.includes(x)); return can.length ? `<optgroup label="${esc(gg.name)}">${can.map((x) => `<option>${esc(x)}</option>`).join('')}</optgroup>` : ''; }).join('') + (() => { const can = loose.filter((x) => !have.includes(x)); return can.length ? `<optgroup label="Grupsuz">${can.map((x) => `<option>${esc(x)}</option>`).join('')}</optgroup>` : ''; })();
     return `<tr><td style="padding-left:20px"><b>${esc(p.full_name)}</b>${p.tracked ? '' : '<br><span class="xs muted">Takip dışı · planda yok</span>'}</td>
       <td><div class="row" style="flex-wrap:wrap;gap:8px">${have.map((ps) => `<span class="row vposchip"><span class="small">${esc(ps)}</span><select class="inp" data-vc="lvl" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)} ${esc(ps)} seviyesi" style="height:34px;width:58px;font-weight:700;padding:0 6px">${['A', 'B', 'C'].map((l) => `<option ${lv[ps] === l ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="xbtn" data-vx="posDel" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)}: ${esc(ps)} pozisyonunu kaldır">×</button></span>`).join('')}
         ${addOpts ? `<select class="inp" data-vc="posAdd" data-a="${p.id}" aria-label="Pozisyon ekle" style="height:34px;width:auto"><option value="">+ Pozisyon ekle</option>${addOpts}</select>` : ''}</div></td>
@@ -579,7 +585,13 @@ function staffHtml() {
       <div class="row between" style="flex-wrap:wrap;gap:10px"><div class="col" style="gap:2px"><h2 class="h2">Gruplar ve pozisyonlar</h2><span class="small muted">Örn. Mutfak: Aşçı, Pastacı · Bar: Barista, Kasa. Her grubun kendi saatleri, kuralları ve planı olur.</span></div>
         <form class="row" data-vf="grpNew" style="gap:6px"><input class="inp" name="name" placeholder="Yeni grup (örn. Mutfak)" aria-label="Yeni grup adı" style="height:44px;width:210px"><button class="btn sm" type="submit" style="min-height:44px">Grup ekle</button></form></div>
       <div class="vgroups">${groups.map(gcard).join('') || '<span class="small muted">Grup yok. Sağ üstten ekle.</span>'}</div>
-      <span class="xs muted">Bir pozisyonu başka gruba taşımak için o grubun “Pozisyon ekle” kutusuna aynı adı yaz; kişilerdeki seviyeler ve kurallar korunur.</span>
+      <span class="xs muted">Bir pozisyon tek bir grupta olur. Başka gruptaki bir pozisyonu tiklersen bu gruba taşınır; kişilerdeki seviyeler ve kurallar korunur.</span>
+      ${loose.length ? `<div class="alert w"><i></i><span class="small"><b>Grubu olmayan pozisyonlar:</b> ${esc(loose.join(', '))}. Bir grupta tikle.</span></div>` : ''}
+    </section>
+    <section class="card col" style="gap:10px"><div class="col" style="gap:2px"><h2 class="h2">Pozisyon listesi</h2><span class="small muted">Gruplarda tiklenecek pozisyonlar. Listede olmayan yeni bir görev için buraya bir kez yaz.</span></div>
+      <div class="row" style="flex-wrap:wrap;gap:8px">${allPositions().map(chip).join('') || '<span class="small muted">Pozisyon yok.</span>'}</div>
+      ${posWarn()}
+      <form class="row" data-vf="posNew" style="gap:6px;flex-wrap:wrap"><input class="inp" name="name" placeholder="Yeni pozisyon (örn. Pastacı)" aria-label="Yeni pozisyon adı" style="height:44px;width:240px"><button class="btn sm" type="submit" style="min-height:44px">Ekle</button></form>
     </section>
     ${grpChips()}
     <section class="card" style="padding:0"><div style="padding:16px 20px 6px"><h2 class="h2">Personel kodları${grp ? ' · ' + esc(grp.name) : ''}</h2><span class="small muted">A deneyimli · B az deneyimli · C öğrenen. Birden fazla pozisyonda çalışana her pozisyon için ayrı seviye ver. Değişiklikler anında kaydedilir.</span></div>
@@ -889,7 +901,7 @@ const act = {
   ruleNewFor: (a) => { V.editRule = null; V.draft = { type: 'cover', pos: 'g:' + a, slot: 'og', days: 'all', op: 'min', n: 1, lvl: 'any' }; draw(); document.getElementById('v-rulebuilder')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   ruleAdd: async () => {
     const D = V.draft, editId = V.editRule && cfg().rules.some((r) => r.id === V.editRule) ? V.editRule : null;
-    const posOk = String(D.pos).startsWith('g:') ? !!grpById(D.pos.slice(2)) : cfg().positions.includes(D.pos);
+    const posOk = String(D.pos).startsWith('g:') ? !!grpById(D.pos.slice(2)) : allPositions().includes(D.pos);
     if (D.type === 'cover' && !posOk) return C.toast('Önce “Personel kodları”ndan bir grup / pozisyon ekle');
     if (D.type === 'person' && !D.pid) return C.toast('Çalışanı seç');
     if (D.type === 'person' && !(D.pdays || []).length) return C.toast('En az bir gün seç');
@@ -909,21 +921,22 @@ const act = {
       if (error) { C.toast(C.errMsg(error)); draw(); return; }
       p.levels = lv;
     }
-    if (await saveGroups(cfg().groups.map((g) => Object.assign({}, g, { positions: g.positions.filter((x) => x !== a) })), { rules: cfg().rules.filter((r) => r.pos !== a) })) C.toast(`“${a}” silindi`);
+    if (await saveGroups(cfg().groups.map((g) => Object.assign({}, g, { positions: g.positions.filter((x) => x !== a) })), { rules: cfg().rules.filter((r) => r.pos !== a), loose_positions: cfg().loose.filter((x) => x !== a) })) C.toast(`“${a}” silindi`);
     if (V.draft.pos === a) V.draft.pos = cfg().positions[0] || '';
     draw();
+  },
+  posTick: async (gid, pos) => {
+    const tgt = grpById(gid); if (!tgt) return;
+    const on = tgt.positions.includes(pos), from = on ? null : groupOf(pos);
+    const groups = cfg().groups.map((g) => Object.assign({}, g, { positions: g.id === gid ? (on ? g.positions.filter((x) => x !== pos) : g.positions.concat([pos])) : g.positions.filter((x) => x !== pos) }));
+    const loose = on ? cfg().loose.concat([pos]) : cfg().loose.filter((x) => x !== pos);
+    if (await saveGroups(groups, { loose_positions: loose })) { C.toast(on ? `“${pos}” ${tgt.name} grubundan çıkarıldı` : from ? `“${pos}”, ${from.name} grubundan ${tgt.name} grubuna taşındı` : `“${pos}” ${tgt.name} grubuna eklendi`); draw(); }
   },
   grpDel: (a) => { V.grpConfirm = a; draw(); },
   grpDelNo: () => { V.grpConfirm = null; draw(); },
   grpDelYes: async (a) => {
     V.grpConfirm = null; const gg = grpById(a); if (!gg) return draw();
-    for (const p of V.staff.filter((x) => x.levels && Object.keys(x.levels).some((k) => gg.positions.includes(k)))) {
-      const lv = Object.fromEntries(Object.entries(p.levels).filter(([k]) => !gg.positions.includes(k)));
-      const { error } = await C.S.sb.from('profiles').update({ levels: lv }).eq('id', p.id);
-      if (error) { C.toast(C.errMsg(error)); draw(); return; }
-      p.levels = lv;
-    }
-    if (await saveGroups(cfg().groups.filter((g) => g.id !== a), { rules: cfg().rules.filter((r) => !(r.pos === 'g:' + a || gg.positions.includes(r.pos))) })) C.toast(`“${gg.name}” grubu silindi`);
+    if (await saveGroups(cfg().groups.filter((g) => g.id !== a), { rules: cfg().rules.filter((r) => r.pos !== 'g:' + a), loose_positions: cfg().loose.concat(gg.positions) })) C.toast(`“${gg.name}” grubu silindi; pozisyonları grupsuz kaldı`);
     V.grps = V.grps.filter((x) => x !== a);
     draw();
   },
@@ -976,12 +989,9 @@ const submit = {
     V.adj.push(data); C.toast('Kayıt eklendi; saat toplamı güncellendi'); draw();
   },
   posNew: async (f) => {
-    const n = String(f.name || '').trim(), gid = f.gid || (cfg().groups[0] && cfg().groups[0].id); if (!n) return;
-    const tgt = grpById(gid); if (!tgt) return C.toast('Önce bir grup ekle');
-    const ex = cfg().positions.find((x) => x.toLocaleLowerCase('tr') === n.toLocaleLowerCase('tr'));
-    if (ex && tgt.positions.includes(ex)) return C.toast('Bu pozisyon bu grupta zaten var');
-    const groups = cfg().groups.map((g) => Object.assign({}, g, { positions: g.id === gid ? g.positions.filter((x) => x !== ex).concat([ex || n]) : g.positions.filter((x) => x !== ex) }));
-    if (await saveGroups(groups)) { C.toast(ex ? `“${ex}”, ${tgt.name} grubuna taşındı` : 'Pozisyon eklendi'); draw(); }
+    const n = String(f.name || '').trim(); if (!n) return;
+    if (allPositions().some((x) => x.toLocaleLowerCase('tr') === n.toLocaleLowerCase('tr'))) return C.toast('Bu pozisyon zaten listede');
+    if (await saveGroups(cfg().groups, { loose_positions: cfg().loose.concat([n]) })) { C.toast(`“${n}” eklendi. Şimdi bir grupta tikle.`); draw(); }
   },
   grpNew: async (f) => {
     const n = String(f.name || '').trim(); if (!n) return;

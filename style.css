@@ -256,3 +256,10 @@ table.vpt{table-layout:fixed}
 .vgrp{font-size:13px!important;letter-spacing:.5px}
 .vc.s-off b{color:#3B414E}
 .vtot span{display:block}
+.vticks{display:flex;flex-wrap:wrap;gap:8px}
+.vtick{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 12px 0 8px;border-radius:12px;border:1px solid #D5D8DF;background:#fff;color:var(--ink);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.vtick i{width:22px;height:22px;border-radius:6px;border:2px solid #9AA0AC;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-size:14px;font-weight:800;color:#fff}
+.vtick.on{border-color:var(--teal);background:#F0FDFA}
+.vtick.on i{background:var(--teal);border-color:var(--teal)}
+.vtick small{font-size:11px;font-weight:500;color:var(--muted)}
+.vgroups{grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))}
