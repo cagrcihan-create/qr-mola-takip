@@ -252,3 +252,7 @@ table.vpt{table-layout:fixed}
 .vgroups{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
 .vgcard{display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--line);border-radius:16px;background:#FAFAFB}
 .vc.other{opacity:.55}
+.vgdot{width:9px;height:9px;border-radius:5px;background:#6366F1;display:inline-block}
+.vgrp{font-size:13px!important;letter-spacing:.5px}
+.vc.s-off b{color:#3B414E}
+.vtot span{display:block}
