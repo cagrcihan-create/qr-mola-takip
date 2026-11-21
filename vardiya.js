@@ -69,7 +69,8 @@ function cfgFrom(c) {
     rules: Array.isArray(c.rules) ? c.rules : DEF_RULES,
     holiday_pay: c.holiday_pay || {},
     holiday_extra: Array.isArray(c.holiday_extra) ? c.holiday_extra : [],
-    offdays: c.offdays && typeof c.offdays === 'object' ? c.offdays : {}
+    offdays: c.offdays && typeof c.offdays === 'object' ? c.offdays : {},
+    daily: c.daily && typeof c.daily === 'object' ? c.daily : {}
   };
 }
 let _cfgKey = null, _cfgVal = null;
@@ -93,7 +94,17 @@ const selGroup = () => {
   return { id: gs.map((g) => g.id).join(','), ids: gs.map((g) => g.id), name: gs.map((g) => g.name).join(' + '), positions: gs.flatMap((g) => g.positions) };
 };
 const shownGroups = () => { const s = selGroup(); return s ? s.ids.map((id) => grpById(id)) : cfg().groups; };
-const cellH = (x, wh, c) => (x.h && x.h.length === 2 && x.h[0] && x.h[1]) ? x.h : hoursPos(x.p, wh, c)[x.s];
+// vardiya saati: elle girilmişse o; kişinin günlük saati varsa dilime göre kısaltılır (açılış/öğlen başa, kapanış sona hizalı)
+const hm2 = (t) => { const q = String(t).split(':'); return +q[0] * 60 + +q[1]; };
+const mm2 = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+const cellH = (x, wh, c, pid, brkH) => {
+  if (x.h && x.h.length === 2 && x.h[0] && x.h[1]) return x.h;
+  const base = hoursPos(x.p, wh, c)[x.s];
+  const dl = pid ? Number(((c || cfg()).daily || {})[pid]) : 0;
+  if (!dl) return base;
+  const len = Math.round((dl + (brkH !== undefined ? brkH : breakH(pid))) * 60);
+  return x.s === 'ka' ? [mm2(hm2(base[1]) - len), base[1]] : [base[0], mm2(hm2(base[0]) + len)];
+};
 const inGroupStaff = (p, grp, a) => !grp || Object.keys(p.levels || p.pos || {}).some((k) => grp.positions.includes(k)) || (a && DN.some((_, d) => { const x = a[p.id + '|' + d]; return x && grp.positions.includes(x.p); }));
 async function saveCfg(patch) {
   const next = Object.assign({}, (V.company && V.company.shift_config) || {}, patch);
@@ -145,7 +156,7 @@ function attempt(g, rnd) {
   if (on.some((r) => r.type === 'consecoff')) g.staff.forEach((p) => {
     if (!Object.keys(p.pos).length) return;
     const avail = [0, 1, 2, 3, 4, 5, 6].filter((d) => !g.leave[p.id + '|' + d]);
-    const offN = Math.max(0, avail.length - Math.min(p.target, maxD)); if (!offN) return;
+    const offN = Math.max(0, avail.length - p.target); if (!offN) return;
     const fixed = (g.offd && g.offd[p.id]) || [], opts = [];
     for (let s0 = 0; s0 + offN <= 7; s0++) {
       const blk = []; for (let d = s0; d < s0 + offN; d++) blk.push(d);
@@ -161,7 +172,7 @@ function attempt(g, rnd) {
     if (p.fixed && p.fixed !== s) return false;
     const k = p.id + '|' + d;
     if (a[k] || off[k] || g.leave[k]) return false;
-    if (cnt(a, p.id) >= Math.min(p.target, maxD)) return false;
+    if (cnt(a, p.id) >= p.target) return false;
     if (g.offd && Array.isArray(g.offd[p.id]) && g.offd[p.id].includes(d)) return false;
     if (clopen) {
       const prev = a[p.id + '|' + (d - 1)], next = a[p.id + '|' + (d + 1)];
@@ -206,7 +217,7 @@ function attempt(g, rnd) {
   const fillOrder = g.staff.map((p) => ({ p, k: rank(p) + rnd() * 0.9 })).sort((x, y) => x.k - y.k).map((x) => x.p);
   fillOrder.concat(fillOrder).forEach((p) => {
     let guard = 0;
-    while (cnt(a, p.id) < Math.min(p.target, maxD) && guard++ < 8) {
+    while (cnt(a, p.id) < p.target && guard++ < 8) {
       let best = null, bs = 1e9;
       for (let d = 0; d < 7; d++) Object.keys(p.pos).forEach((pos) => SL.forEach((s) => {
         if (!ok(p, d, s, pos)) return;
@@ -239,7 +250,7 @@ function ruleText(r) {
   if (r.type === 'consecoff') return 'Herkesin haftalık izni art arda olur (izin günleri bölünmez)';
   if (r.type === 'pair') return 'C seviyesi yalnız bırakılmaz: aynı dilim ve pozisyonda yanında A veya B olmalı';
   if (r.type === 'clopen') return 'Kapanış yapan, ertesi gün açılışa yazılmaz';
-  if (r.type === 'maxdays') return `Kimse haftada ${r.n} günden fazla çalışmaz`;
+  if (r.type === 'maxdays') return `Kimse haftada ${r.n} günden fazla çalışmaz (Personel kodlarında daha fazla gün verilen kişi hariç)`;
   if (r.type === 'fair') return 'Kapanışlar kişiler arasında eşit dağıtılır (tercih)';
   const lv = { any: 'kişi', A: 'A seviye', B: 'B seviye', C: 'C seviye', AB: 'A veya B seviye' }[r.lvl];
   const dy = { all: 'her gün', wd: 'hafta içi', we: 'hafta sonu' }[r.days];
@@ -273,7 +284,7 @@ function evaluate(g) {
       for (let d = S[0]; d <= S[S.length - 1]; d++) if (a[p.id + '|' + d]) { add(r.id, `${nm(p.id)}: haftalık izni bölünmüş`, `İzin günleri ${S.map((x) => DN[x]).join(', ')}; art arda olmalı.`, S.map((x) => p.id + '|' + x), [], S[0]); break; }
     });
     if (r.type === 'clopen') g.staff.forEach((p) => { for (let d = 0; d < 6; d++) { const x = a[p.id + '|' + d], y = a[p.id + '|' + (d + 1)]; if (x && y && x.s === 'ka' && y.s === 'ac') add(r.id, `${nm(p.id)}: kapanıştan sonra açılış`, `${DN[d]} kapanış, ${DN[d + 1]} açılış.`, [p.id + '|' + d, p.id + '|' + (d + 1)], [], d + 1); } });
-    if (r.type === 'maxdays') g.staff.forEach((p) => { const n = cnt(a, p.id); if (n > r.n) add(r.id, `${nm(p.id)}: ${n} gün`, `Haftalık sınır ${r.n} gün.`, [0, 1, 2, 3, 4, 5, 6].filter((d) => a[p.id + '|' + d]).map((d) => p.id + '|' + d), []); });
+    if (r.type === 'maxdays') g.staff.forEach((p) => { const n = cnt(a, p.id), lim = Math.max(r.n, p.target || 0); if (n > lim) add(r.id, `${nm(p.id)}: ${n} gün`, `Haftalık sınır ${lim} gün.`, [0, 1, 2, 3, 4, 5, 6].filter((d) => a[p.id + '|' + d]).map((d) => p.id + '|' + d), []); });
   });
   g.rules.filter((r) => r.on && r.type === 'person' && Array.isArray(r.pdays)).forEach((r) => {
     const p = g.staff.find((x) => x.id === r.pid); if (!p) return;
@@ -297,7 +308,7 @@ function evaluate(g) {
 }
 const breakH = (pid) => { const p = V.staff.find((x) => x.id === pid); const m = p && p.break_allowance_min != null ? p.break_allowance_min : (V.company && V.company.break_allowance_min != null ? V.company.break_allowance_min : 60); return (Number(m) || 0) / 60; };
 function cellAdj(pid, d) {
-  const iso = addD(V.week, d), x = (V.plan.asg || {})[pid + '|' + d], base = x ? dur(cellH(x)) : 0;
+  const iso = addD(V.week, d), x = (V.plan.asg || {})[pid + '|' + d], base = x ? dur(cellH(x, undefined, undefined, pid)) : 0;
   let net = base, gel = false, minus = false, plus = false; const tags = [];
   V.adj.filter((a) => a.user_id === pid && a.day === iso).forEach((a) => {
     const h = Number(a.hours) || 0;
@@ -555,7 +566,7 @@ function planHtml() {
       const other = !!(grp && x && !grp.positions.includes(x.p));
       hrs += aj.work; planH += aj.baseWork; gross += aj.net; dayH[d] += aj.work; if (aj.net > 0) dayP[d]++;
       let top, sub, cls;
-      if (x) { const hh = cellH(x); top = SN[x.s]; sub = `${hh[0]}–${hh[1]}${x.h ? ' ✎' : ''}` + (multi || other ? ' · ' + x.p : ''); cls = 's-' + x.s + (other ? ' other' : ''); }
+      if (x) { const hh = cellH(x, undefined, undefined, p.id); top = SN[x.s]; sub = `${hh[0]}–${hh[1]}${x.h ? ' ✎' : ''}` + (multi || other ? ' · ' + x.p : ''); cls = 's-' + x.s + (other ? ' other' : ''); }
       else if (lv) { top = LK[lv][0]; sub = 'Planlanamaz'; cls = LK[lv][1] + ' dashed'; }
       else { top = aj.plus ? 'Ekstra' : 'Haftalık izin'; sub = aj.plus ? 'Vardiya dışı' : isOff(p.id, d) ? 'Sabit izin günü' : (V.plan.locks[k] ? 'Elle verildi' : '+ vardiya ver'); cls = 's-off' + (isOff(p.id, d) && !aj.plus ? ' fixoff' : ''); }
       const tag = aj.tags.length ? `<span class="adjtag ${aj.gel || (aj.minus && !aj.plus) ? 'neg' : 'pos'}">${esc(aj.tags.join(' · '))}</span>` : '';
@@ -637,7 +648,7 @@ function editHtml(g, ev) {
       <div class="row" style="gap:8px"><button class="btn sm line" data-vx="toggleLock">${V.plan.locks[k] ? 'Kilidi aç' : 'Kilitle'}</button><button class="btn sm ghost" data-vx="closeEdit">Kapat</button></div></div>
     ${warn ? `<div class="alert w"><i></i><span class="small">${esc(warn)}</span></div>` : ''}
     ${pos.length ? `<div class="row" style="flex-wrap:wrap;gap:8px">${opts}</div><span class="xs muted">Elle yaptığın seçim otomatik kilitlenir; “Değiştir”e bastığında bu hücre korunur.</span>` : '<span class="small muted">Bu kişiye önce “Personel kodları”ndan pozisyon ver.</span>'}
-    ${x ? (() => { const hh = cellH(x), def = hoursPos(x.p)[x.s]; return `<div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px"><b class="small">Bu vardiyanın saati <span class="muted" style="font-weight:500">· sadece bu kişi ve bu gün için</span></b>
+    ${x ? (() => { const hh = cellH(x, undefined, undefined, pid), def = cellH(Object.assign({}, x, { h: null }), undefined, undefined, pid); return `<div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:12px"><b class="small">Bu vardiyanın saati <span class="muted" style="font-weight:500">· sadece bu kişi ve bu gün için</span></b>
       <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center"><input class="inp" type="time" value="${hh[0]}" data-vc="cellH" data-b="0" aria-label="Başlangıç saati" style="height:44px;width:120px"><span>–</span><input class="inp" type="time" value="${hh[1]}" data-vc="cellH" data-b="1" aria-label="Bitiş saati" style="height:44px;width:120px"><span class="small muted">${hNum(dur(hh))} saat</span>
       ${x.h ? `<button class="btn sm line" data-vx="cellHReset">Varsayılana dön (${def[0]}–${def[1]})</button>` : `<span class="xs muted">Varsayılan: ${def[0]}–${def[1]}</span>`}</div></div>`; })() : ''}
     <div class="col" style="gap:10px;border-top:1px solid var(--line);padding-top:12px">
@@ -739,7 +750,8 @@ function staffHtml() {
     return `<tr><td style="padding-left:20px"><b>${esc(p.full_name)}</b>${p.tracked ? '' : '<br><span class="xs muted">Takip dışı · planda yok</span>'}</td>
       <td><div class="row" style="flex-wrap:wrap;gap:8px">${have.map((ps) => `<span class="row vposchip"><span class="small">${esc(ps)}</span><select class="inp" data-vc="lvl" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)} ${esc(ps)} seviyesi" style="height:34px;width:58px;font-weight:700;padding:0 6px">${['A', 'B', 'C'].map((l) => `<option ${lv[ps] === l ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="xbtn" data-vx="posDel" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)}: ${esc(ps)} pozisyonunu kaldır">×</button></span>`).join('')}
         ${addOpts ? `<select class="inp" data-vc="posAdd" data-a="${p.id}" aria-label="Pozisyon ekle" style="height:34px;width:auto"><option value="">+ Pozisyon ekle</option>${addOpts}</select>` : ''}</div></td>
-      <td><select class="inp" data-vc="target" data-a="${p.id}" aria-label="Haftalık gün" style="height:38px;width:auto">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${(p.target_days ?? 5) === n ? 'selected' : ''}>${n} gün</option>`).join('')}</select></td>
+      <td><select class="inp" data-vc="target" data-a="${p.id}" aria-label="Haftada kaç gün çalışır" style="height:38px;width:auto">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${(p.target_days ?? 5) === n ? 'selected' : ''}>${n} gün${n < 7 ? ' · ' + (7 - n) + ' izin' : ''}</option>`).join('')}</select></td>
+      <td><select class="inp" data-vc="daily" data-a="${p.id}" aria-label="Günde kaç saat çalışır" style="height:38px;width:auto"><option value="">Vardiya kadar</option>${[4, 5, 6, 7, 7.5, 8, 9, 10, 11].map((h) => `<option value="${h}" ${Number(cfg().daily[p.id]) === h ? 'selected' : ''}>${hNum(h)} saat</option>`).join('')}</select></td>
       <td><div class="voff" role="group" aria-label="${esc(p.full_name)} haftalık izin günleri">${DN.map((dn, d) => { const on = isOff(p.id, d); return `<button class="${on ? 'on' : ''}" data-vx="offDay" data-a="${p.id}" data-b="${d}" aria-pressed="${on}" title="${dn}">${dn.slice(0, 2)}</button>`; }).join('')}</div></td>
       <td><select class="inp" data-vc="fixed" data-a="${p.id}" aria-label="Sabit vardiya" style="height:38px;width:auto"><option value="">Yok (döner)</option>${SL.map((s) => `<option value="${s}" ${p.fixed_slot === s ? 'selected' : ''}>Hep ${SN[s]}</option>`).join('')}</select></td>
       <td style="text-align:right;padding-right:20px"><button class="btn sm line" data-vx="openCal" data-a="${p.id}">Gelmedi / rapor işaretle</button></td></tr>`;
@@ -758,7 +770,7 @@ function staffHtml() {
     </section>
     ${grpChips()}
     <section class="card" style="padding:0"><div style="padding:16px 20px 6px"><h2 class="h2">Personel kodları${grp ? ' · ' + esc(grp.name) : ''}</h2><span class="small muted">A deneyimli · B az deneyimli · C öğrenen. Birden fazla pozisyonda çalışana her pozisyon için ayrı seviye ver. Değişiklikler anında kaydedilir.</span></div>
-      <div class="tbl-wrap"><table class="tbl" style="min-width:1080px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftalık gün</th><th>Haftalık izin günleri</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:1200px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftada<br>çalışma günü</th><th>Günde çalışma<br><span style="font-weight:500">(mola hariç)</span></th><th>Haftalık izin günleri</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
     <p class="small muted" style="margin:0">Yeni çalışanlar kayıt olunca burada görünür. “Çalışanlar” sekmesinde mola takibi kapalı olanlar plana alınmaz.</p>`;
 }
 
@@ -994,7 +1006,7 @@ function planPdf() {
       const cells = DN.map((_, d) => {
         const k = p.id + '|' + d, x = a[k], lv = g.leave[k], aj = cellAdj(p.id, d); h += aj.work; dayH[d] += aj.work;
         const tag = aj.tags.length ? ` <i>(${esc(aj.tags.join(', '))})</i>` : '';
-        if (x) return `<td><span class="lv s-${x.s}">${SN[x.s]} ${cellH(x).join('–')}${multi || (gg && !gg.positions.includes(x.p)) ? ' · ' + esc(x.p) : ''}</span>${tag}</td>`;
+        if (x) return `<td><span class="lv s-${x.s}">${SN[x.s]} ${cellH(x, undefined, undefined, p.id).join('–')}${multi || (gg && !gg.positions.includes(x.p)) ? ' · ' + esc(x.p) : ''}</span>${tag}</td>`;
         if (lv) return `<td><span class="lv ${LK[lv][1]}">${LK[lv][0]}</span></td>`;
         return `<td class="muted">Haftalık izin${tag}</td>`;
       }).join('');
@@ -1044,10 +1056,10 @@ function empWeek(E, ws) {
   const days = DN.map((dn, d) => {
     const iso = addD(ws, d), x = w && w.plan && w.plan.asg ? w.plan.asg[uid + '|' + d] : null;
     const l = E.leaves.find((q) => iso >= q.day_from && iso <= q.day_to), code = l ? lcode(l.kind) : null;
-    if (x) { n++; hrs += Math.max(0, dur(cellH(x, w ? w.hours : null, CE)) - E.brk); }
+    if (x) { n++; hrs += Math.max(0, dur(cellH(x, w ? w.hours : null, CE, uid, E.brk)) - E.brk); }
     const cls = code ? LK[code][1] : x ? 's-' + x.s : 's-off';
     return `<div class="row" style="gap:12px;padding:8px 0;border-bottom:1px solid var(--soft)"><div class="col" style="gap:0;width:44px;align-items:center"><span class="xs muted" style="font-weight:600">${dn}</span><b style="font-size:18px">${+iso.slice(8)}</b></div>
-      <div class="row between grow ${cls}" style="padding:10px 12px;border-radius:12px;${iso === today ? 'outline:2px solid var(--ink);' : ''}"><span class="col" style="gap:1px"><b class="small">${code ? esc(l.kind) : x ? SN[x.s] : 'Haftalık izin'}</b><span class="xs">${x ? esc(x.p) : code ? '' : 'Çalışmıyorsun'}</span></span><b class="num small">${x ? cellH(x, w ? w.hours : null, CE).join('–') : ''}</b></div></div>`;
+      <div class="row between grow ${cls}" style="padding:10px 12px;border-radius:12px;${iso === today ? 'outline:2px solid var(--ink);' : ''}"><span class="col" style="gap:1px"><b class="small">${code ? esc(l.kind) : x ? SN[x.s] : 'Haftalık izin'}</b><span class="xs">${x ? esc(x.p) : code ? '' : 'Çalışmıyorsun'}</span></span><b class="num small">${x ? cellH(x, w ? w.hours : null, CE, uid, E.brk).join('–') : ''}</b></div></div>`;
   }).join('');
   return { w, html: days, n, hrs };
 }
@@ -1073,9 +1085,9 @@ async function empToday() {
     const E = empCache && empCache.ws === monday(todayIso()) && Date.now() - empCache.at < 120000 ? empCache : await empFetch();
     const today = todayIso(), ws = monday(today), d = wdOf(today), w = E.weeks.find((x) => x.week_start === ws);
     const x = w && w.plan && w.plan.asg ? w.plan.asg[C.S.me.user_id + '|' + d] : null;
-    const CE = cfgFrom(E.cfg), xh = x ? cellH(x, w ? w.hours : null, CE) : null;
+    const CE = cfgFrom(E.cfg), me = C.S.me.user_id, xh = x ? cellH(x, w ? w.hours : null, CE, me, E.brk) : null;
     let next = null;
-    for (let k = 1; k <= 13 && !next; k++) { const iso = addD(today, k), ww = E.weeks.find((q) => q.week_start === monday(iso)), y = ww && ww.plan && ww.plan.asg ? ww.plan.asg[C.S.me.user_id + '|' + wdOf(iso)] : null; if (y) next = { iso, y, hh: cellH(y, ww.hours, CE) }; }
+    for (let k = 1; k <= 13 && !next; k++) { const iso = addD(today, k), ww = E.weeks.find((q) => q.week_start === monday(iso)), y = ww && ww.plan && ww.plan.asg ? ww.plan.asg[C.S.me.user_id + '|' + wdOf(iso)] : null; if (y) next = { iso, y, hh: cellH(y, ww.hours, CE, me, E.brk) }; }
     if (!w && !next) { box.innerHTML = ''; return; }
     box.innerHTML = `<button class="card row between" data-act="empView" data-v="shift" style="border:0;width:100%;text-align:left;cursor:pointer;font:inherit"><div class="col" style="gap:2px"><span class="xs muted" style="font-weight:600">Bugünkü vardiyan</span><b style="font-size:18px">${x ? `${SN[x.s]} · ${xh.join('–')}` : 'Bugün vardiyan yok'}</b>${next ? `<span class="xs muted">Sonraki: ${DN[wdOf(next.iso)]} ${dShort(next.iso)} · ${SN[next.y.s]} ${next.hh.join('–')}</span>` : ''}</div><span class="small" style="color:var(--teal);font-weight:600">Vardiyam ›</span></button>`;
   } catch (_) { box.innerHTML = ''; }
@@ -1222,7 +1234,7 @@ const change = {
   grpName: async (el) => { const n = el.value.trim(); if (!n) { draw(); return; } if (await saveGroups(cfg().groups.map((g) => g.id === el.dataset.a ? Object.assign({}, g, { name: n }) : g))) { C.toast('Grup adı kaydedildi'); draw(); } },
   cellH: (el) => {
     const k = V.edit, x = k && V.plan.asg[k]; if (!x || !el.value) return;
-    const h = cellH(x).slice(); h[+el.dataset.b] = el.value;
+    const h = cellH(x, undefined, undefined, k.split('|')[0]).slice(); h[+el.dataset.b] = el.value;
     V.plan.asg[k] = Object.assign({}, x, { h }); V.plan.locks[k] = true; scheduleSave(); draw();
     C.toast(`Saat ${h[0]}–${h[1]} olarak kaydedildi`);
   },
@@ -1231,6 +1243,11 @@ const change = {
   lvl: (el) => { const p = V.staff.find((x) => x.id === el.dataset.a); saveProfile(p.id, { levels: Object.assign({}, p.levels, { [el.dataset.b]: el.value }) }); },
   posAdd: (el) => { if (!el.value) return; const p = V.staff.find((x) => x.id === el.dataset.a); saveProfile(p.id, { levels: Object.assign({}, p.levels, { [el.value]: 'B' }) }); },
   target: (el) => saveProfile(el.dataset.a, { target_days: +el.value }),
+  daily: async (el) => {
+    const d = Object.assign({}, cfg().daily); if (el.value) d[el.dataset.a] = Number(el.value); else delete d[el.dataset.a];
+    const p = V.staff.find((x) => x.id === el.dataset.a), mb = Math.round(breakH(el.dataset.a) * 60);
+    if (await saveCfg({ daily: d })) { C.toast(el.value ? `${first(p && p.full_name)}: günde ${hNum(+el.value)} saat (+${mb} dk mola) → vardiya ${hNum(+el.value + mb / 60)} saat` : `${first(p && p.full_name)}: vardiya saatleri kadar`); draw(); }
+  },
   fixed: (el) => saveProfile(el.dataset.a, { fixed_slot: el.value || null }),
   calPid: (el) => { V.cal.pid = el.value; V.cal.sel = []; draw(); },
   calNote: (el) => { V.cal.note = el.value; },
@@ -1349,6 +1366,6 @@ window.QRV = {
   init(ctx) { C = ctx; wire(); },
   adminTab, empBody, empLoad, empToday,
   reset() { Object.assign(V, { loaded: false, row: null, _weekLoaded: null, week: null, puan: null }); empCache = null; },
-  _test: { parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
+  _test: { cellH, cellAdj, parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
 };
 })();
