@@ -752,6 +752,7 @@ function staffHtml() {
         ${addOpts ? `<select class="inp" data-vc="posAdd" data-a="${p.id}" aria-label="Pozisyon ekle" style="height:34px;width:auto"><option value="">+ Pozisyon ekle</option>${addOpts}</select>` : ''}</div></td>
       <td><select class="inp" data-vc="target" data-a="${p.id}" aria-label="Haftada kaç gün çalışır" style="height:38px;width:auto">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${(p.target_days ?? 5) === n ? 'selected' : ''}>${n} gün${n < 7 ? ' · ' + (7 - n) + ' izin' : ''}</option>`).join('')}</select></td>
       <td><select class="inp" data-vc="daily" data-a="${p.id}" aria-label="Günde kaç saat çalışır" style="height:38px;width:auto"><option value="">Vardiya kadar</option>${[4, 5, 6, 7, 7.5, 8, 9, 10, 11].map((h) => `<option value="${h}" ${Number(cfg().daily[p.id]) === h ? 'selected' : ''}>${hNum(h)} saat</option>`).join('')}</select></td>
+      <td>${(() => { const def = V.company && V.company.break_allowance_min != null ? V.company.break_allowance_min : 60, cur = p.break_allowance_min; const opts = [0, 15, 20, 30, 45, 60, 75, 90, 120]; return `<select class="inp" data-vc="brk" data-a="${p.id}" aria-label="Günlük mola" style="height:38px;width:auto"><option value="" ${cur == null ? 'selected' : ''}>Şirket: ${def} dk</option>${opts.concat(cur != null && !opts.includes(cur) ? [cur] : []).map((m) => `<option value="${m}" ${cur != null && +cur === m ? 'selected' : ''}>${m ? m + ' dk' : 'Molasız'}</option>`).join('')}</select>`; })()}</td>
       <td><div class="voff" role="group" aria-label="${esc(p.full_name)} haftalık izin günleri">${DN.map((dn, d) => { const on = isOff(p.id, d); return `<button class="${on ? 'on' : ''}" data-vx="offDay" data-a="${p.id}" data-b="${d}" aria-pressed="${on}" title="${dn}">${dn.slice(0, 2)}</button>`; }).join('')}</div></td>
       <td><select class="inp" data-vc="fixed" data-a="${p.id}" aria-label="Sabit vardiya" style="height:38px;width:auto"><option value="">Yok (döner)</option>${SL.map((s) => `<option value="${s}" ${p.fixed_slot === s ? 'selected' : ''}>Hep ${SN[s]}</option>`).join('')}</select></td>
       <td style="text-align:right;padding-right:20px"><button class="btn sm line" data-vx="openCal" data-a="${p.id}">Gelmedi / rapor işaretle</button></td></tr>`;
@@ -770,7 +771,7 @@ function staffHtml() {
     </section>
     ${grpChips()}
     <section class="card" style="padding:0"><div style="padding:16px 20px 6px"><h2 class="h2">Personel kodları${grp ? ' · ' + esc(grp.name) : ''}</h2><span class="small muted">A deneyimli · B az deneyimli · C öğrenen. Birden fazla pozisyonda çalışana her pozisyon için ayrı seviye ver. Değişiklikler anında kaydedilir.</span></div>
-      <div class="tbl-wrap"><table class="tbl" style="min-width:1200px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftada<br>çalışma günü</th><th>Günde çalışma<br><span style="font-weight:500">(mola hariç)</span></th><th>Haftalık izin günleri</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
+      <div class="tbl-wrap"><table class="tbl" style="min-width:1320px"><thead><tr><th style="padding-left:20px">Çalışan</th><th>Pozisyon ve seviye</th><th>Haftada<br>çalışma günü</th><th>Günde çalışma<br><span style="font-weight:500">(mola hariç)</span></th><th>Günlük<br>mola</th><th>Haftalık izin günleri</th><th>Sabit vardiya</th><th><span class="sr">İşlem</span></th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="muted" style="padding:20px">Bu grupta pozisyonu olan çalışan yok.</td></tr>'}</tbody></table></div></section>
     <p class="small muted" style="margin:0">Yeni çalışanlar kayıt olunca burada görünür. “Çalışanlar” sekmesinde mola takibi kapalı olanlar plana alınmaz.</p>`;
 }
 
@@ -1243,6 +1244,10 @@ const change = {
   lvl: (el) => { const p = V.staff.find((x) => x.id === el.dataset.a); saveProfile(p.id, { levels: Object.assign({}, p.levels, { [el.dataset.b]: el.value }) }); },
   posAdd: (el) => { if (!el.value) return; const p = V.staff.find((x) => x.id === el.dataset.a); saveProfile(p.id, { levels: Object.assign({}, p.levels, { [el.value]: 'B' }) }); },
   target: (el) => saveProfile(el.dataset.a, { target_days: +el.value }),
+  brk: async (el) => {
+    const v = el.value === '' ? null : Number(el.value), p = V.staff.find((x) => x.id === el.dataset.a);
+    if (await saveProfile(el.dataset.a, { break_allowance_min: v })) C.toast(`${first(p && p.full_name)}: günlük mola ${v == null ? 'şirket varsayılanı' : v ? v + ' dk' : 'yok'} · mola uygulamasında da geçerli`);
+  },
   daily: async (el) => {
     const d = Object.assign({}, cfg().daily); if (el.value) d[el.dataset.a] = Number(el.value); else delete d[el.dataset.a];
     const p = V.staff.find((x) => x.id === el.dataset.a), mb = Math.round(breakH(el.dataset.a) * 60);
