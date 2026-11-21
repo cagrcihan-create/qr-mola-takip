@@ -73,7 +73,10 @@ function cfgFrom(c) {
     offdays: c.offdays && typeof c.offdays === 'object' ? c.offdays : {},
     daily: c.daily && typeof c.daily === 'object' ? c.daily : {},
     weekly_limit: c.weekly_limit == null ? 45 : Number(c.weekly_limit) || 0,
-    templates: Array.isArray(c.templates) ? c.templates : []
+    templates: Array.isArray(c.templates) ? c.templates : [],
+    hide_pos: Array.isArray(c.hide_pos) ? c.hide_pos : [],
+    hide_people: Array.isArray(c.hide_people) ? c.hide_people : [],
+    show_people: Array.isArray(c.show_people) ? c.show_people : []
   };
 }
 let _cfgKey = null, _cfgVal = null;
@@ -136,7 +139,11 @@ function holidays(year) {
   Object.keys(out).forEach((k) => { if (k in c.holiday_pay) out[k].pay2x = !!c.holiday_pay[k]; });
   return out;
 }
-const planStaff = () => V.staff.filter((p) => p.active && p.tracked);
+// vardiyada gösterilmeyenler: pozisyon+seviye (örn. Müdür|B) ya da tek kişi
+const hideReason = (p, c) => { c = c || cfg(); if (c.hide_people.includes(p.id)) return 'Elle gizlendi';
+  const lv = p.levels || {}, h = c.hide_pos.find((x) => { const [ps, l] = x.split('|'); return lv[ps] && (!l || lv[ps] === l); });
+  return h && !c.show_people.includes(p.id) ? h.replace('|', ' · ') + ' gizli' : ''; };
+const planStaff = () => V.staff.filter((p) => p.active && p.tracked && !hideReason(p));
 const staffG = () => planStaff().map((p) => ({ id: p.id, name: p.full_name, pos: p.levels || {}, target: p.target_days ?? 5, fixed: p.fixed_slot || '' }));
 function leaveMapWeek(ws) {
   const m = {};
@@ -495,7 +502,18 @@ function parseCommands(text) {
     const ambNote = ppl.some((x) => x.amb) ? ' (aynı isimde birden fazla kişi var; tam adını yaz)' : '';
     const A = { sent, desc: '', err: '', run: null };
     const lmap = leaveMapWeek(V.week);
-    if (/izi?n/.test(low) && /(kimse|hiç ?kimse|herkes|hiçbir)/.test(low) && /(yapamaz|yapmasın|alamaz|almasın|olmaz|olmasın|yok|kullanamaz|yasak|veril)/.test(low) && days.length) {
+    const fold = (x) => TRL(x).replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ç/g, 'c').replace(/ğ/g, 'g'), fl = fold(low);
+    const hidePos = allPositions().slice().sort((x, y) => y.length - x.length).find((x) => fl.includes(fold(x)));
+    if (/(gozukme|gorunme|gosterme|cikmasin|gizle)/.test(fl) && (hidePos || person)) {
+      if (hidePos && (!person || /(^|\s)[abc]('|’|\s|$)/.test(fl))) {
+        const lm = fl.match(new RegExp(fold(hidePos) + "\\S*\\s+([abc])(?:'|’|\\s|$)")), lvl = lm ? lm[1].toUpperCase() : '', key = hidePos + (lvl ? '|' + lvl : '');
+        A.desc = lvl ? `${hidePos} · ${lvl} seviyesindeki kişiler vardiyada gösterilmeyecek` : `Tüm ${hidePos} pozisyonundakiler vardiyada gösterilmeyecek`; A.rule = true;
+        A.run = async () => cfg().hide_pos.includes(key) || saveCfg({ hide_pos: cfg().hide_pos.concat([key]) });
+      } else {
+        A.desc = `${person.full_name} vardiyada gösterilmeyecek`; A.rule = true;
+        A.run = async () => cfg().hide_people.includes(person.id) || saveCfg({ hide_people: cfg().hide_people.concat([person.id]), show_people: cfg().show_people.filter((x) => x !== person.id) });
+      }
+    } else if (/izi?n/.test(low) && /(kimse|hiç ?kimse|herkes|hiçbir)/.test(low) && /(yapamaz|yapmasın|alamaz|almasın|olmaz|olmasın|yok|kullanamaz|yasak|veril)/.test(low) && days.length) {
       const has = cfg().rules.find((r) => r.type === 'nooff'), nd = has ? Array.from(new Set((has.pdays || [6]).concat(days))).sort() : days.slice().sort();
       A.desc = `Kural eklenecek: ${dayList(nd)} kimse haftalık izin yapamaz`;
       A.rule = true; A.run = async () => saveCfg({ rules: has ? cfg().rules.map((r) => r.type === 'nooff' ? Object.assign({}, r, { on: true, pdays: nd }) : r) : cfg().rules.concat([{ id: 'r' + Date.now().toString(36), type: 'nooff', on: true, pdays: nd }]) });
@@ -783,7 +801,9 @@ function staffHtml() {
   const rows = V.staff.filter((p) => p.active && inGroupStaff(p, grp)).map((p) => {
     const lv = p.levels || {}, have = Object.keys(lv);
     const addOpts = groups.map((gg) => { const can = gg.positions.filter((x) => !have.includes(x)); return can.length ? `<optgroup label="${esc(gg.name)}">${can.map((x) => `<option>${esc(x)}</option>`).join('')}</optgroup>` : ''; }).join('') + (() => { const can = loose.filter((x) => !have.includes(x)); return can.length ? `<optgroup label="Grupsuz">${can.map((x) => `<option>${esc(x)}</option>`).join('')}</optgroup>` : ''; })();
-    return `<tr><td style="padding-left:20px"><b>${esc(p.full_name)}</b>${p.tracked ? '' : '<br><span class="xs muted">Takip dışı · planda yok</span>'}</td>
+    const hr = hideReason(p);
+    return `<tr${hr ? ' style="opacity:.7"' : ''}><td style="padding-left:20px"><b>${esc(p.full_name)}</b>${p.tracked ? '' : '<br><span class="xs muted">Takip dışı · planda yok</span>'}
+      <br><button class="btn sm ${hr ? '' : 'line'}" data-vx="hideToggle" data-a="${p.id}" style="margin-top:6px;min-height:32px;white-space:nowrap" aria-pressed="${!!hr}">${hr ? 'Gizli · göster' : 'Vardiyada gizle'}</button>${hr ? `<br><span class="xs muted">${esc(hr)}</span>` : ''}</td>
       <td><div class="row" style="flex-wrap:wrap;gap:8px">${have.map((ps) => `<span class="row vposchip"><span class="small">${esc(ps)}</span><select class="inp" data-vc="lvl" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)} ${esc(ps)} seviyesi" style="height:34px;width:58px;font-weight:700;padding:0 6px">${['A', 'B', 'C'].map((l) => `<option ${lv[ps] === l ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="xbtn" data-vx="posDel" data-a="${p.id}" data-b="${esc(ps)}" aria-label="${esc(p.full_name)}: ${esc(ps)} pozisyonunu kaldır">×</button></span>`).join('')}
         ${addOpts ? `<select class="inp" data-vc="posAdd" data-a="${p.id}" aria-label="Pozisyon ekle" style="height:34px;width:auto"><option value="">+ Pozisyon ekle</option>${addOpts}</select>` : ''}</div></td>
       <td><select class="inp" data-vc="target" data-a="${p.id}" aria-label="Haftada kaç gün çalışır" style="height:38px;width:auto">${[1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${(p.target_days ?? 5) === n ? 'selected' : ''}>${n} gün${n < 7 ? ' · ' + (7 - n) + ' izin' : ''}</option>`).join('')}</select></td>
@@ -801,6 +821,11 @@ function staffHtml() {
         <div class="row" style="flex-wrap:wrap;gap:8px">${C0.templates.map((t, i) => `<span class="row vposchip"><b class="small">${esc(t.name ? t.name + ' · ' : '')}${t.start}${t.end ? '–' + t.end : ' → otomatik'}</b><button class="xbtn" data-vx="tplDel" data-a="${i}" aria-label="Kalıbı sil">×</button></span>`).join('') || '<span class="small muted">Henüz kalıp yok.</span>'}</div>
         <form class="row" data-vf="tplNew" style="gap:6px;flex-wrap:wrap;align-items:flex-end"><label class="f" style="margin:0">Giriş<input class="inp" type="time" name="start" required style="height:44px;width:120px"></label><label class="f" style="margin:0">Çıkış (boş = otomatik)<input class="inp" type="time" name="end" style="height:44px;width:120px"></label><label class="f" style="margin:0">Ad (isteğe bağlı)<input class="inp" name="name" placeholder="Örn. Ara vardiya" style="height:44px;width:160px"></label><button class="btn sm" type="submit" style="min-height:44px">Kalıp ekle</button></form>
       </div>
+    </section>
+    <section class="card col" style="gap:12px">
+      <div class="col" style="gap:2px"><h2 class="h2">Vardiyada gösterilmeyenler</h2><span class="small muted">Bu pozisyon ve seviyedeki kişiler vardiya planında ve PDF’te görünmez. İzin, rapor ve puantajda görünmeye devam eder.</span></div>
+      <div class="row" style="flex-wrap:wrap;gap:8px">${C0.hide_pos.map((x) => `<span class="row vposchip"><b class="small">${esc(x.split('|')[0])}${x.split('|')[1] ? ' · ' + esc(x.split('|')[1]) : ' · tüm seviyeler'}</b><button class="xbtn" data-vx="hidePosDel" data-a="${esc(x)}" aria-label="Gizlemeyi kaldır">×</button></span>`).join('') || '<span class="small muted">Gizlenen pozisyon yok.</span>'}</div>
+      <form class="row" data-vf="hidePos" style="gap:6px;flex-wrap:wrap;align-items:flex-end"><label class="f" style="margin:0">Pozisyon<select class="inp" name="pos" style="height:44px;width:auto">${allPositions().map((x) => `<option>${esc(x)}</option>`).join('')}</select></label><label class="f" style="margin:0">Seviye<select class="inp" name="lvl" style="height:44px;width:auto"><option value="">Hepsi</option><option>A</option><option>B</option><option>C</option></select></label><button class="btn sm" type="submit" style="min-height:44px">Vardiyada gizle</button></form>
     </section>
     <section class="card col" style="gap:12px">
       <div class="row between" style="flex-wrap:wrap;gap:10px"><div class="col" style="gap:2px"><h2 class="h2">Gruplar ve pozisyonlar</h2><span class="small muted">Örn. Mutfak: Aşçı, Pastacı · Bar: Barista, Kasa. Her grubun kendi saatleri, kuralları ve planı olur.</span></div>
@@ -1163,6 +1188,14 @@ const act = {
     V.plan.asg[k] = { s, p: ps, h }; V.plan.locks[k] = true; V.edit = null; scheduleSave(); draw();
     C.toast(`${first(p.full_name)}: ${SN[s]} ${h[0]}–${h[1]}`);
   },
+  hidePosDel: async (x) => { if (await saveCfg({ hide_pos: cfg().hide_pos.filter((y) => y !== x) })) draw(); },
+  hideToggle: async (pid) => {
+    const c = cfg(), p = V.staff.find((x) => x.id === pid); if (!p) return;
+    const hidden = !!hideReason(p), patch = {};
+    if (hidden) { patch.hide_people = c.hide_people.filter((x) => x !== pid); if (hideReason(p, Object.assign({}, c, patch))) patch.show_people = c.show_people.concat([pid]); }
+    else { patch.show_people = c.show_people.filter((x) => x !== pid); if (!hideReason(p, Object.assign({}, c, patch))) patch.hide_people = c.hide_people.concat([pid]); }
+    if (await saveCfg(patch)) { C.toast(`${first(p.full_name)}: ${hidden ? 'vardiyada görünür' : 'vardiyada gizli'}`); draw(); }
+  },
   tplDel: async (i) => { if (await saveCfg({ templates: cfg().templates.filter((_, j) => j !== +i) })) draw(); },
   cellHReset: () => { const k = V.edit, x = k && V.plan.asg[k]; if (!x) return; const y = Object.assign({}, x); delete y.h; V.plan.asg[k] = y; scheduleSave(); draw(); },
   toggleLock: () => { const k = V.edit; V.plan.locks[k] = !V.plan.locks[k]; if (!V.plan.locks[k]) delete V.plan.locks[k]; scheduleSave(); draw(); },
@@ -1345,6 +1378,11 @@ const submit = {
     if (allPositions().some((x) => x.toLocaleLowerCase('tr') === n.toLocaleLowerCase('tr'))) return C.toast('Bu pozisyon zaten listede');
     if (await saveGroups(cfg().groups, { loose_positions: cfg().loose.concat([n]) })) { C.toast(`“${n}” eklendi. Şimdi bir grupta tikle.`); draw(); }
   },
+  hidePos: async (f) => {
+    if (!f.pos) return; const x = f.pos + (f.lvl ? '|' + f.lvl : '');
+    if (cfg().hide_pos.includes(x)) return C.toast('Zaten gizli');
+    if (await saveCfg({ hide_pos: cfg().hide_pos.concat([x]) })) { C.toast(`${f.pos}${f.lvl ? ' ' + f.lvl : ''} vardiyada gizlendi`); draw(); }
+  },
   tplNew: async (f) => {
     if (!f.start) return;
     if (cfg().templates.some((t) => t.start === f.start && (t.end || '') === (f.end || ''))) return C.toast('Bu kalıp zaten var');
@@ -1443,6 +1481,6 @@ window.QRV = {
   init(ctx) { C = ctx; wire(); },
   adminTab, empBody, empLoad, empToday,
   reset() { Object.assign(V, { loaded: false, row: null, _weekLoaded: null, week: null, puan: null }); empCache = null; },
-  _test: { effOff, netDaily, shiftMin, cellH, cellAdj, parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
+  _test: { effOff, hideReason, planStaff, netDaily, shiftMin, cellH, cellAdj, parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
 };
 })();
