@@ -141,6 +141,21 @@ function attempt(g, rnd) {
   const must = on.filter((r) => r.type === 'person' && r.mode === 'must' && Array.isArray(r.pdays));
   const a = {}, off = {};
   Object.keys(g.locks).forEach((k) => { if (g.locks[k]) { if (g.asg[k]) a[k] = g.asg[k]; else off[k] = true; } });
+  // art arda haftalık izin: her kişiye bitişik bir izin bloğu seç
+  if (on.some((r) => r.type === 'consecoff')) g.staff.forEach((p) => {
+    if (!Object.keys(p.pos).length) return;
+    const avail = [0, 1, 2, 3, 4, 5, 6].filter((d) => !g.leave[p.id + '|' + d]);
+    const offN = Math.max(0, avail.length - Math.min(p.target, maxD)); if (!offN) return;
+    const fixed = (g.offd && g.offd[p.id]) || [], opts = [];
+    for (let s0 = 0; s0 + offN <= 7; s0++) {
+      const blk = []; for (let d = s0; d < s0 + offN; d++) blk.push(d);
+      if (blk.some((d) => g.leave[p.id + '|' + d] || a[p.id + '|' + d])) continue;
+      if (fixed.some((d) => !blk.includes(d))) continue;
+      opts.push(blk);
+    }
+    if (!opts.length) return;
+    opts[Math.floor(rnd() * opts.length)].forEach((d) => { off[p.id + '|' + d] = true; });
+  });
   const ok = (p, d, s, pos) => {
     if (!p.pos[pos]) return false;
     if (p.fixed && p.fixed !== s) return false;
@@ -221,6 +236,7 @@ function ruleText(r) {
     if (r.mode === 'never') return r.slot === 'all' ? `${nm}: ${dt} çalışmaz` : `${nm}: ${dt} ${SN[r.slot]} vardiyasına yazılmaz`;
     return r.slot === 'all' ? `${nm}: ${dt} mutlaka çalışır` : `${nm}: ${dt} mutlaka ${SN[r.slot]} yapar`;
   }
+  if (r.type === 'consecoff') return 'Herkesin haftalık izni art arda olur (izin günleri bölünmez)';
   if (r.type === 'pair') return 'C seviyesi yalnız bırakılmaz: aynı dilim ve pozisyonda yanında A veya B olmalı';
   if (r.type === 'clopen') return 'Kapanış yapan, ertesi gün açılışa yazılmaz';
   if (r.type === 'maxdays') return `Kimse haftada ${r.n} günden fazla çalışmaz`;
@@ -251,6 +267,11 @@ function evaluate(g) {
         if (cs.length && count(g, a, d, s, pos, 'AB') === 0) add(r.id, `${DN[d]} ${SN[s]} · ${pos}: C yalnız`, cs.map((p) => nm(p.id)).join(', ') + ' yanında A veya B yok.', cs.map((p) => p.id + '|' + d), [d + '|' + s + '|' + pos], d, pos);
       }));
     }
+    if (r.type === 'consecoff') g.staff.forEach((p) => {
+      if (!Object.keys(p.pos).length) return;
+      const S = [0, 1, 2, 3, 4, 5, 6].filter((d) => !a[p.id + '|' + d] && !g.leave[p.id + '|' + d]); if (S.length < 2) return;
+      for (let d = S[0]; d <= S[S.length - 1]; d++) if (a[p.id + '|' + d]) { add(r.id, `${nm(p.id)}: haftalık izni bölünmüş`, `İzin günleri ${S.map((x) => DN[x]).join(', ')}; art arda olmalı.`, S.map((x) => p.id + '|' + x), [], S[0]); break; }
+    });
     if (r.type === 'clopen') g.staff.forEach((p) => { for (let d = 0; d < 6; d++) { const x = a[p.id + '|' + d], y = a[p.id + '|' + (d + 1)]; if (x && y && x.s === 'ka' && y.s === 'ac') add(r.id, `${nm(p.id)}: kapanıştan sonra açılış`, `${DN[d]} kapanış, ${DN[d + 1]} açılış.`, [p.id + '|' + d, p.id + '|' + (d + 1)], [], d + 1); } });
     if (r.type === 'maxdays') g.staff.forEach((p) => { const n = cnt(a, p.id); if (n > r.n) add(r.id, `${nm(p.id)}: ${n} gün`, `Haftalık sınır ${r.n} gün.`, [0, 1, 2, 3, 4, 5, 6].filter((d) => a[p.id + '|' + d]).map((d) => p.id + '|' + d), []); });
   });
@@ -375,6 +396,142 @@ function grpChips() {
 }
 const violInGroup = (v, grp) => !grp || (v.pos ? ((String(v.pos).startsWith('g:') && grp.ids.includes(v.pos.slice(2))) || grp.positions.includes(v.pos)) : v.cells.some((k) => { const p = V.staff.find((x) => x.id === k.split('|')[0]); return p && inGroupStaff(p, grp, V.plan.asg); }));
 
+// ---- yazıyla komut: “Batuhan’ı çarşamba 12.00’ye al”, “Sude’nin iznini bir gün sonraya kaydır” …
+const TRL = (x) => String(x || '').toLocaleLowerCase('tr');
+const DAYW = [['pazartesi', 0], ['pzt', 0], ['pts', 0], ['salı', 1], ['sali', 1], ['çarşamba', 2], ['carsamba', 2], ['çarsamba', 2], ['carşamba', 2], ['çarş', 2], ['perşembe', 3], ['persembe', 3], ['perş', 3], ['cumartesi', 5], ['cmt', 5], ['ctesi', 5], ['cuma', 4], ['pazar', 6], ['sal', 1], ['çar', 2], ['per', 3], ['cum', 4], ['paz', 6]];
+const SUFX = ['nın', 'nin', 'nun', 'nün', 'yla', 'yle', 'ya', 'ye', 'yı', 'yi', 'yu', 'yü', 'ın', 'in', 'un', 'ün', 'ı', 'i', 'u', 'ü', 'a', 'e', 'la', 'le', 'dan', 'den', 'tan', 'ten', 'da', 'de', 'ta', 'te'];
+const NUMW = { bir: 1, iki: 2, üç: 3, dört: 4, beş: 5, altı: 6 };
+function lev(a, b) { const m = a.length, n = b.length; if (Math.abs(m - n) > 2) return 9; const d = Array.from({ length: m + 1 }, (_, i) => [i]); for (let j = 1; j <= n; j++) d[0][j] = j; for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[m][n]; }
+function dayOfWord(w) {
+  const base = w.split("'")[0];
+  for (const [k, d] of DAYW) if (base === k || (base.startsWith(k) && base.length - k.length <= 3 && k.length >= 3)) return d;
+  return null;
+}
+function variants(w) {
+  const b = w.split("'")[0], out = [b];
+  SUFX.forEach((s) => { if (b.length - s.length >= 3 && b.endsWith(s)) out.push(b.slice(0, -s.length)); });
+  return out;
+}
+function findPeople(sent) {
+  const staff = V.staff.filter((p) => p.active), low = TRL(sent), found = [];
+  staff.forEach((p) => { const full = TRL(p.full_name); const i = low.indexOf(full); if (full.includes(' ') && i >= 0) found.push({ p, at: i }); });
+  const words = low.split(/\s+/); let at = 0;
+  words.forEach((w) => {
+    const pos = low.indexOf(w, at); at = pos + w.length;
+    if (w.length < 3 || dayOfWord(w) !== null) return;
+    const vs = variants(w);
+    let best = null, bd = 9;
+    staff.forEach((p) => {
+      const fn = TRL(first(p.full_name));
+      vs.forEach((v) => { const dd = v === fn ? 0 : (v.length >= 4 && fn.length >= 4 ? lev(v, fn) : 9); if (dd < bd) { bd = dd; best = p; } });
+    });
+    if (best && bd <= 1 && !found.some((f) => f.p.id === best.id)) {
+      const amb = staff.filter((p) => TRL(first(p.full_name)) === TRL(first(best.full_name))).length > 1;
+      found.push({ p: best, at: pos, amb });
+    }
+  });
+  return found.sort((x, y) => x.at - y.at);
+}
+const toMin = (t) => { const q = t.split(':'); return +q[0] * 60 + +q[1]; };
+const fromMin = (m) => { m = ((m % 1440) + 1440) % 1440; return p2(Math.floor(m / 60)) + ':' + p2(m % 60); };
+function parseCommands(text) {
+  const prot = String(text).replace(/(\d{1,2})[.:](\d{2})/g, (_, h, m) => `${p2(+h)}:${m}`).replace(/[’`´]/g, "'");
+  const sents = prot.split(/[\n!?;]+|\.(?=\s|$)/).map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  const today = todayIso(), ti = diffD(V.week, today);
+  sents.forEach((sent) => {
+    const low = TRL(sent), words = low.replace(/[,()]/g, ' ').split(/\s+/).filter(Boolean);
+    const ppl = findPeople(sent), person = ppl[0] && ppl[0].p;
+    const days = []; words.forEach((w) => { const d = dayOfWord(w); if (d !== null && !days.includes(d)) days.push(d); });
+    if (/\byarın/.test(low) && ti + 1 >= 0 && ti + 1 <= 6) days.push(ti + 1);
+    if (/\bbugün/.test(low) && ti >= 0 && ti <= 6) days.push(ti);
+    const times = (prot.match(/\b\d{2}:\d{2}\b/g) || []).filter((t) => sent.includes(t));
+    const tm = low.match(/\bsaat\s*(\d{1,2})\b/) || low.match(/\b(\d{1,2})'(?:e|a|ye|ya|de|da|te|ta|den|dan)\b/);
+    if (!times.length && tm && +tm[1] <= 24) times.push(p2(+tm[1]) + ':00');
+    const slot = /açılış|acilis|sabah/.test(low) ? 'ac' : /öğle|ogle|ara vardiya/.test(low) ? 'og' : /kapanış|kapanis|akşam|aksam|gece/.test(low) ? 'ka' : null;
+    const numM = low.match(/\b(\d)\s*gün/) || low.match(/\b(bir|iki|üç|dört|beş|altı)\s*gün/);
+    const k = numM ? (NUMW[numM[1]] || +numM[1]) : 1;
+    const ambNote = ppl.some((x) => x.amb) ? ' (aynı isimde birden fazla kişi var; tam adını yaz)' : '';
+    const A = { sent, desc: '', err: '', run: null };
+    const lmap = leaveMapWeek(V.week);
+    if (/(art ?arda|ard ?arda|ardarda|arka arkaya|bitişik|ayırma|bölme|bölünme)/.test(low) && (!person || /herkes|kimse/.test(low))) {
+      const has = cfg().rules.find((r) => r.type === 'consecoff');
+      A.desc = has && has.on ? 'Kural zaten açık: herkesin haftalık izni art arda' : 'Kural eklenecek: herkesin haftalık izni art arda olur (izin günleri bölünmez)';
+      A.rule = true; A.run = async () => saveCfg({ rules: has ? cfg().rules.map((r) => r.type === 'consecoff' ? Object.assign({}, r, { on: true }) : r) : cfg().rules.concat([{ id: 'r' + Date.now().toString(36), type: 'consecoff', on: true }]) });
+    } else if (!person) {
+      A.err = 'Kimden bahsettiğini bulamadım. Çalışanın adını yaz (örn. “Batuhan”).';
+    } else if (/(değiş|takas)/.test(low) && ppl.length >= 2) {
+      const q = ppl[1].p; if (!days.length) A.err = 'Hangi gün? (örn. “perşembe”)';
+      else {
+        A.desc = `${person.full_name} ↔ ${q.full_name}: ${days.map((d) => DN[d]).join(', ')} vardiyaları yer değiştirecek`;
+        A.run = () => days.forEach((d) => { const a = person.id + '|' + d, b = q.id + '|' + d, xa = V.plan.asg[a], xb = V.plan.asg[b];
+          const fit = (x, who) => { if (!x) return null; const lv = who.levels || {}; if (lv[x.p]) return Object.assign({}, x); const g0 = groupOf(x.p), same = Object.keys(lv).find((k) => g0 && g0.positions.includes(k)); return Object.assign({}, x, { p: same || Object.keys(lv)[0] || x.p }); };
+          const na = fit(xb, person), nb = fit(xa, q);
+          if (na) V.plan.asg[a] = na; else delete V.plan.asg[a]; if (nb) V.plan.asg[b] = nb; else delete V.plan.asg[b];
+          V.plan.locks[a] = true; V.plan.locks[b] = true; });
+      }
+    } else if (/izi?n/.test(low) && /(kaydır|kaydir|ertele|sonraya|ileri|öne|one al|geri|önceye|onceye)/.test(low)) {
+      const dir = /(öne|one al|geri|önceye|onceye)/.test(low) ? -1 : 1, step = dir * k;
+      const offs = DN.map((_, d) => d).filter((d) => !V.plan.asg[person.id + '|' + d] && !lmap[person.id + '|' + d]);
+      if (!Object.keys(V.plan.asg).length) A.err = 'Bu hafta için plan yok; önce planı oluştur.';
+      else if (!offs.length) A.err = `${person.full_name} bu hafta hiç haftalık izinli değil.`;
+      else {
+        const to = offs.map((d) => d + step);
+        if (to.some((d) => d < 0 || d > 6)) A.err = `${person.full_name}: izin (${offs.map((d) => DN[d]).join(', ')}) ${Math.abs(step)} gün ${dir > 0 ? 'sonraya' : 'öne'} kayınca hafta dışına çıkıyor.`;
+        else if (to.some((d) => lmap[person.id + '|' + d])) A.err = `${person.full_name}: kaydırılacak günde izin/rapor kaydı var.`;
+        else {
+          A.desc = `${person.full_name}: haftalık izin ${offs.map((d) => DN[d]).join(', ')} → ${to.map((d) => DN[d]).join(', ')}`;
+          A.run = () => { const ord = offs.slice().sort((x, y) => step > 0 ? y - x : x - y); ord.forEach((d) => { const a = person.id + '|' + d, b = person.id + '|' + (d + step), xa = V.plan.asg[a], xb = V.plan.asg[b];
+            if (xb) V.plan.asg[a] = xb; else delete V.plan.asg[a]; if (xa) V.plan.asg[b] = xa; else delete V.plan.asg[b]; V.plan.locks[a] = true; V.plan.locks[b] = true; }); };
+        }
+      }
+    } else if (/\b(her|hep|sürekli|daima)\b/.test(low) && days.length && /(izin|çalışma|calisma)/.test(low)) {
+      const cur = cfg().offdays[person.id] || [], next = cur.concat(days.filter((d) => !cur.includes(d))).sort();
+      A.desc = `${person.full_name}: sabit haftalık izin günleri ${next.map((d) => DN[d]).join(', ')} olacak (her hafta)`;
+      A.rule = true; A.run = async () => saveCfg({ offdays: Object.assign({}, cfg().offdays, { [person.id]: next }) });
+    } else if (days.length && /(izin|çalışmasın|calismasin|çalışmayacak|boşalt|bosalt|çıkar|cikar|\bsil)/.test(low)) {
+      A.desc = `${person.full_name}: ${days.map((d) => DN[d]).join(', ')} haftalık izin (vardiya kaldırılacak)`;
+      A.run = () => days.forEach((d) => { delete V.plan.asg[person.id + '|' + d]; V.plan.locks[person.id + '|' + d] = true; });
+    } else if (days.length && (times.length || slot || /(?:^|\s)(al|koy|yaz|ver|getir|ekle|çalışsın|calissin)(?=\s|$|[.,!?])/.test(low))) {
+      const pos = Object.keys(person.levels || {});
+      if (!pos.length) A.err = `${person.full_name} kişisinin pozisyonu yok; önce “Personel kodları”ndan ver.`;
+      else {
+        const parts = [];
+        const runs = days.map((d) => {
+          const k0 = person.id + '|' + d, ex = V.plan.asg[k0], ps = ex && pos.includes(ex.p) ? ex.p : pos[0], H = hoursPos(ps);
+          let s = slot; if (!s && times.length) s = SL.slice().sort((x, y) => Math.abs(toMin(H[x][0]) - toMin(times[0])) - Math.abs(toMin(H[y][0]) - toMin(times[0])))[0]; if (!s) s = ex ? ex.s : 'og';
+          let h = null;
+          if (times.length >= 2) h = [times[0], times[1]];
+          else if (times.length === 1) h = [times[0], fromMin(toMin(times[0]) + Math.round(dur(H[s]) * 60))];
+          if (h && h[0] === H[s][0] && h[1] === H[s][1]) h = null;
+          const hh = h || H[s];
+          parts.push(`${DN[d]} ${SN[s]} ${hh[0]}–${hh[1]}${pos.length > 1 ? ' · ' + ps : ''}${lmap[k0] ? ' (dikkat: o gün izin/rapor kaydı var)' : ''}`);
+          return () => { V.plan.asg[k0] = h ? { s, p: ps, h } : { s, p: ps }; V.plan.locks[k0] = true; };
+        });
+        A.desc = `${person.full_name}: ${parts.join(', ')}`;
+        A.run = () => runs.forEach((f) => f());
+      }
+    } else if (!days.length) {
+      A.err = 'Hangi gün? Gün adını yaz (örn. “çarşamba”).';
+    } else {
+      A.err = 'Ne yapılacağını anlayamadım. Saat (12.00), dilim (açılış/öğlen/kapanış), “izin” ya da “kaydır” gibi bir ifade ekle.';
+    }
+    if (A.desc && ambNote) A.desc += ambNote;
+    out.push(A);
+  });
+  return out;
+}
+function cmdHtml() {
+  const C0 = V.cmd;
+  return `<section class="card col" style="gap:10px" aria-label="Yazıyla komut">
+    <div class="col" style="gap:2px"><h2 class="h2">Yaz, sistem yapsın</h2><span class="xs muted">Örnekler: “Batuhan’ı çarşamba 12.00’ye al” · “Sude’nin iznini bir gün sonraya kaydır” · “Ahmet cuma izinli” · “Elif ile Mert perşembe değişsin” · “Ayşe her pazartesi izinli” · “Herkesin izni art arda olsun”. Her cümleyi nokta ya da yeni satırla ayır.</span></div>
+    <form class="col" data-vf="cmd" style="gap:8px"><textarea class="inp" name="t" rows="2" placeholder="Örn. Batuhan’ı çarşamba 12.00’ye al. Sude’nin iznini bir gün sonraya kaydır." style="height:auto;min-height:64px;padding:10px 12px;resize:vertical;font:inherit">${esc((C0 && C0.text) || '')}</textarea>
+      <div class="row" style="gap:8px"><button class="btn" type="submit">Anla</button>${C0 ? '<button class="btn line" type="button" data-vx="cmdClear">Temizle</button>' : ''}</div></form>
+    ${C0 ? `<div class="col" style="gap:6px">${C0.actions.map((a) => `<div class="alert ${a.err ? '' : 'w'}" style="${a.err ? '' : 'background:#F0FDFA;border-color:#99F6E4'}"><i style="${a.err ? '' : 'background:#0F766E'}"></i><div class="col" style="gap:2px"><span class="xs muted">“${esc(a.sent)}”</span><b class="small">${esc(a.err || a.desc)}</b></div></div>`).join('')}
+      ${C0.actions.some((a) => a.run) ? `<div class="row" style="gap:8px"><button class="btn teal" data-vx="cmdApply">Uygula (${C0.actions.filter((a) => a.run).length})</button><span class="xs muted">Plandaki değişen hücreler kilitlenir.</span></div>` : ''}</div>` : ''}
+  </section>`;
+}
+
 // ---- haftalık plan
 function planHtml() {
   const g = G(), ev = evaluate(g), a = g.asg, today = todayIso(), grp = selGroup(), groups = shownGroups();
@@ -435,6 +592,7 @@ function planHtml() {
         <button class="btn sm" data-vx="publish" id="v-pubbtn" ${empty ? 'disabled' : ''}>${pubLabel()}</button>
       </div>
     </div>
+    ${cmdHtml()}
     ${grpChips()}
     ${grp ? `<span class="xs muted">Sadece “${esc(grp.name)}” grubu gösteriliyor. “Değiştir” yalnızca bu grubun vardiyalarını yeniden dağıtır; diğer gruplar olduğu gibi kalır.</span>` : ''}
     ${hoursBar}
@@ -504,7 +662,7 @@ function ruleGroup(r) {
 function rulesHtml() {
   const R = cfg().rules, D = V.draft, ev = Object.keys(V.plan.asg || {}).length ? evaluate(G()) : null, groups = cfg().groups;
   const sel = (name, val, opts) => `<select class="inp" data-vc="draft" data-a="${name}" style="height:44px">${opts.map(([v, t]) => `<option value="${esc(v)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  const badge = { cover: ['Kapsama', 's-ka'], pair: ['Eşleşme', 's-ac'], clopen: ['Kişi sınırı', 's-off'], maxdays: ['Kişi sınırı', 's-off'], fair: ['Tercih', 's-og'], person: ['Kişiye özel', 'l-izin'] };
+  const badge = { consecoff: ['İzin düzeni', 's-off'], cover: ['Kapsama', 's-ka'], pair: ['Eşleşme', 's-ac'], clopen: ['Kişi sınırı', 's-off'], maxdays: ['Kişi sınırı', 's-off'], fair: ['Tercih', 's-og'], person: ['Kişiye özel', 'l-izin'] };
   const card = (r) => {
     const nb = ev ? ev.byRule[r.id] || 0 : 0, editing = V.editRule === r.id;
     return `<div class="row between vrule${r.on ? '' : ' off'}" style="flex-wrap:wrap${editing ? ';border:2px solid var(--ink)' : ''}">
@@ -515,7 +673,7 @@ function rulesHtml() {
   };
   const sections = groups.map((gg) => ({ title: gg.name, sub: 'Bu grubun pozisyonları için kurallar', list: R.filter((r) => ruleGroup(r) === gg), gid: gg.id }))
     .concat([{ title: 'Kişiye özel', sub: 'Belirli bir çalışan için: o gün çalışmaz, o dilime yazılmaz ya da mutlaka çalışır', list: R.filter((r) => r.type === 'person'), person: true }])
-    .concat([{ title: 'Herkes için', sub: 'Tüm gruplarda geçerli kişi kuralları', list: R.filter((r) => r.type !== 'cover' && r.type !== 'person') }])
+    .concat([{ title: 'Herkes için', sub: 'Tüm gruplarda geçerli kişi kuralları', list: R.filter((r) => r.type !== 'cover' && r.type !== 'person'), general: true }])
     .concat(R.some((r) => r.type === 'cover' && !ruleGroup(r)) ? [{ title: 'Pozisyonu silinmiş kurallar', sub: 'Pozisyonu artık olmadığı için çalışmaz; düzenle ya da sil', list: R.filter((r) => r.type === 'cover' && !ruleGroup(r)) }] : []);
   const posOpts = groups.map((gg) => `<optgroup label="${esc(gg.name)}"><option value="g:${esc(gg.id)}" ${D.pos === 'g:' + gg.id ? 'selected' : ''}>${esc(gg.name)} — tüm grup</option>${gg.positions.map((p) => `<option value="${esc(p)}" ${D.pos === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</optgroup>`).join('') + (loosePositions().length ? `<optgroup label="Grupsuz">${loosePositions().map((p) => `<option value="${esc(p)}" ${D.pos === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</optgroup>` : '');
   const edit = V.editRule && R.find((r) => r.id === V.editRule);
@@ -523,11 +681,11 @@ function rulesHtml() {
     <div class="main col" style="gap:16px">
       ${sections.map((sec) => `<section class="card col" style="gap:10px"><div class="row between" style="flex-wrap:wrap"><div class="col" style="gap:2px"><h2 class="h2">${esc(sec.title)}</h2><span class="xs muted">${esc(sec.sub)}</span></div><span class="small muted">${sec.list.filter((r) => r.on).length} aktif · ${sec.list.length} kural</span></div>
         ${sec.list.map(card).join('') || '<span class="small muted">Kural yok.</span>'}
-        ${sec.gid ? `<button class="btn sm line" style="align-self:flex-start" data-vx="ruleNewFor" data-a="${esc(sec.gid)}">+ ${esc(sec.title)} için kural ekle</button>` : ''}${sec.person ? '<button class="btn sm line" style="align-self:flex-start" data-vx="ruleNewPerson">+ Kişiye özel kural ekle</button>' : ''}</section>`).join('')}
+        ${sec.gid ? `<button class="btn sm line" style="align-self:flex-start" data-vx="ruleNewFor" data-a="${esc(sec.gid)}">+ ${esc(sec.title)} için kural ekle</button>` : ''}${sec.person ? '<button class="btn sm line" style="align-self:flex-start" data-vx="ruleNewPerson">+ Kişiye özel kural ekle</button>' : ''}${sec.general ? '<button class="btn sm line" style="align-self:flex-start" data-vx="ruleNewGeneral">+ Herkes için kural ekle</button>' : ''}</section>`).join('')}
       ${(V.company.shift_config || {}).rules ? '' : '<span class="xs muted">Bunlar örnek kurallar. Değiştirdiğin anda şirketine kaydedilir.</span>'}
     </div>
     <aside class="side"><section class="card col" id="v-rulebuilder" style="gap:12px${edit ? ';border:2px solid var(--ink)' : ''}"><h2 class="h2">${edit ? 'Kuralı düzenle' : 'Kural ekle'}</h2>
-      <label class="f">Kural türü${sel('type', D.type, [['cover', 'Kişi sayısı / seviye şartı'], ['pair', 'C seviyesi yalnız kalmasın'], ['clopen', 'Kapanıştan sonra açılış yok'], ['maxdays', 'Haftalık gün sınırı'], ['fair', 'Kapanışları eşit dağıt'], ['person', 'Kişiye özel']])}</label>
+      <label class="f">Kural türü${sel('type', D.type, [['cover', 'Kişi sayısı / seviye şartı'], ['pair', 'C seviyesi yalnız kalmasın'], ['clopen', 'Kapanıştan sonra açılış yok'], ['maxdays', 'Haftalık gün sınırı'], ['fair', 'Kapanışları eşit dağıt'], ['consecoff', 'Haftalık izinler art arda'], ['person', 'Kişiye özel']])}</label>
       ${D.type === 'person' ? `<div class="col" style="gap:12px">
         <label class="f">Çalışan<select class="inp" data-vc="draft" data-a="pid" style="height:44px"><option value="">Seç…</option>${planStaff().map((p) => `<option value="${p.id}" ${D.pid === p.id ? 'selected' : ''}>${esc(p.full_name)}</option>`).join('')}</select></label>
         <div class="formgrid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
@@ -900,6 +1058,16 @@ const act = {
     draw(); document.getElementById('v-rulebuilder')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   },
   ruleEditCancel: () => { V.editRule = null; draw(); },
+  ruleNewGeneral: () => { V.editRule = null; const has = (t) => cfg().rules.some((r) => r.type === t); const t = ['consecoff', 'clopen', 'pair', 'fair'].find((x) => !has(x)) || 'maxdays'; V.draft = Object.assign({}, V.draft, { type: t, n: 5 }); draw(); document.getElementById('v-rulebuilder')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
+  cmdClear: () => { V.cmd = null; draw(); },
+  cmdApply: async () => {
+    const C0 = V.cmd; if (!C0) return;
+    let planCh = 0, ruleCh = 0;
+    for (const a of C0.actions.filter((x) => x.run)) { if (a.rule) { await a.run(); ruleCh++; } else { a.run(); planCh++; } }
+    if (planCh) scheduleSave();
+    V.cmd = null; V.edit = null; draw();
+    C.toast(`${planCh + ruleCh} değişiklik uygulandı`);
+  },
   ruleNewPerson: () => { V.editRule = null; V.draft = { type: 'person', pid: '', mode: 'never', slot: 'all', pdays: [], pos: cfg().positions[0] || '', days: 'all', op: 'min', n: 1, lvl: 'any' }; draw(); document.getElementById('v-rulebuilder')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); },
   draftDay: (a) => { const d = +a, s = V.draft.pdays || []; V.draft.pdays = s.includes(d) ? s.filter((x) => x !== d) : s.concat([d]).sort(); draw(); },
   draftDays: (a) => { V.draft.pdays = a === 'all' ? [0, 1, 2, 3, 4, 5, 6] : a === 'wd' ? [0, 1, 2, 3, 4] : a === 'we' ? [5, 6] : []; draw(); },
@@ -990,6 +1158,11 @@ const change = {
   month: async (el) => { if (!/^\d{4}-\d{2}$/.test(el.value)) return; V.month = el.value; V.puan = null; draw(); try { await loadMonth(); } catch (e) { C.toast(C.errMsg(e)); } draw(); }
 };
 const submit = {
+  cmd: (f) => {
+    const t = String(f.t || '').trim(); if (!t) return;
+    if (V.sub !== 'plan') V.sub = 'plan';
+    V.cmd = { text: t, actions: parseCommands(t) }; draw();
+  },
   adj: async (f) => {
     const k = V.edit; if (!k) return;
     const [pid, d] = k.split('|'), x = V.plan.asg[k], kind = f.kind || V.adjDraft.kind;
@@ -1097,6 +1270,6 @@ window.QRV = {
   init(ctx) { C = ctx; wire(); },
   adminTab, empBody, empLoad, empToday,
   reset() { Object.assign(V, { loaded: false, row: null, _weekLoaded: null, week: null, puan: null }); empCache = null; },
-  _test: { generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
+  _test: { parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
 };
 })();

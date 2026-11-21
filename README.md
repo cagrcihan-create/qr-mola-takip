@@ -101,4 +101,6 @@ Yönetici panelinde **Vardiya** sekmesi:
 | **İzin · Rapor · Gelmedi** | Personeli seç → takvimde günlere dokun → Gelmedi / Raporlu / Yıllık izin. Geçmiş ve ileri tarih. |
 | **Aylık puantaj** | Gün gün ✓ geldi, 2× bayramda çalıştı, X gelmedi, Y yıllık, R raporlu. “Geldi” QR girişinden gelir; planlı olup girişi olmayan otomatik “Gelmedi” sayılır. Resmi tatil listesi ve çift yevmiye ayarı (15 Temmuz ve arifeler normal). PDF çıktısı. |
 
+**Yaz, sistem yapsın** (Haftalık plan’ın üstünde): “Batuhan’ı çarşamba 12.00’ye al”, “Sude’nin iznini bir gün sonraya kaydır”, “Ahmet cuma izinli”, “Elif ile Mert perşembe değişsin”, “Ayşe her pazartesi izinli”, “Herkesin izni art arda olsun”. Önce ne anlaşıldığı gösterilir, “Uygula” ile plana işlenir. Bu bir yapay zekâ değil; isim, gün, saat, dilim ve “izin / kaydır / değiş” gibi kelimeleri tanır.
+
 Çalışan uygulamasında **Vardiyam** sekmesi: bu hafta ve gelecek haftanın yayınlanmış planı, toplam saat, PDF. Ana sayfada “Bugünkü vardiyan” kartı.
