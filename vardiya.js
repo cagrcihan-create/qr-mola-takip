@@ -178,7 +178,8 @@ function attempt(g, rnd) {
     if (!Object.keys(p.pos).length) return;
     const avail = [0, 1, 2, 3, 4, 5, 6].filter((d) => !g.leave[p.id + '|' + d]);
     const offN = Math.max(0, avail.length - p.target); if (!offN) return;
-    const fixed = (g.offd && g.offd[p.id]) || [], opts = [];
+    // sabit izin günleri + elle verilen (kilitli) izinler bloğun içinde olmalı
+    const fixed = ((g.offd && g.offd[p.id]) || []).concat([0, 1, 2, 3, 4, 5, 6].filter((d) => off[p.id + '|' + d] && !g.leave[p.id + '|' + d])), opts = [];
     for (let s0 = 0; s0 + offN <= 7; s0++) {
       const blk = []; for (let d = s0; d < s0 + offN; d++) blk.push(d);
       if (blk.some((d) => g.leave[p.id + '|' + d] || a[p.id + '|' + d])) continue;
