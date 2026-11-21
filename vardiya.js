@@ -143,8 +143,12 @@ function leaveMapWeek(ws) {
   V.leaves.forEach((l) => { for (let d = 0; d < 7; d++) { const iso = addD(ws, d); if (iso >= l.day_from && iso <= l.day_to) m[l.user_id + '|' + d] = lcode(l.kind); } });
   return m;
 }
-const G = () => ({ staff: staffG(), rules: cfg().rules, offd: cfg().offdays, leave: leaveMapWeek(V.week), asg: V.plan.asg || {}, locks: V.plan.locks || {} });
-const isOff = (pid, d) => { const o = cfg().offdays[pid]; return Array.isArray(o) && o.includes(d); };
+// kişiye özel “her dilimde çalışmaz” kuralları = sabit haftalık izin günü
+const isFixOffRule = (r) => r.on && r.type === 'person' && r.mode === 'never' && r.slot === 'all' && Array.isArray(r.pdays);
+function effOff(c) { c = c || cfg(); const o = {}; Object.keys(c.offdays || {}).forEach((k) => { if (Array.isArray(c.offdays[k])) o[k] = c.offdays[k].slice(); });
+  (c.rules || []).filter(isFixOffRule).forEach((r) => { const cur = o[r.pid] || (o[r.pid] = []); r.pdays.forEach((d) => { if (!cur.includes(d)) cur.push(d); }); cur.sort(); }); return o; }
+const G = () => ({ staff: staffG(), rules: cfg().rules, offd: effOff(), leave: leaveMapWeek(V.week), asg: V.plan.asg || {}, locks: V.plan.locks || {} });
+const isOff = (pid, d) => { const o = effOff()[pid]; return Array.isArray(o) && o.includes(d); };
 
 // ------------------------------------------------------------------ plan motoru
 function rng(seed) { let t = seed >>> 0; return () => { t = (t + 0x6D2B79F5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r ^= r + Math.imul(r ^ (r >>> 7), 61 | r); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; }
@@ -262,7 +266,7 @@ function ruleText(r) {
   if (r.type === 'person') {
     const p = V.staff.find((x) => x.id === r.pid), nm = p ? p.full_name : 'Silinmiş kişi', dd = r.pdays || [];
     const dt = dd.length === 7 ? 'her gün' : dd.length === 5 && [0, 1, 2, 3, 4].every((x) => dd.includes(x)) ? 'hafta içi' : dd.length === 2 && dd.includes(5) && dd.includes(6) ? 'hafta sonu' : dd.length ? dd.slice().sort().map((x) => DN[x]).join(', ') : '(gün seçilmedi)';
-    if (r.mode === 'never') return r.slot === 'all' ? `${nm}: ${dt} çalışmaz` : `${nm}: ${dt} ${SN[r.slot]} vardiyasına yazılmaz`;
+    if (r.mode === 'never') return r.slot === 'all' ? `${nm}: ${dt} sabit haftalık izin (çalışmaz)` : `${nm}: ${dt} ${SN[r.slot]} vardiyasına yazılmaz`;
     return r.slot === 'all' ? `${nm}: ${dt} mutlaka çalışır` : `${nm}: ${dt} mutlaka ${SN[r.slot]} yapar`;
   }
   if (r.type === 'nooff') return `${dayList(Array.isArray(r.pdays) ? r.pdays : [6])} kimse haftalık izin yapamaz (elle verilen izin hariç)`;
@@ -310,7 +314,7 @@ function evaluate(g) {
     if (r.type === 'clopen') g.staff.forEach((p) => { for (let d = 0; d < 6; d++) { const x = a[p.id + '|' + d], y = a[p.id + '|' + (d + 1)]; if (x && y && x.s === 'ka' && y.s === 'ac') add(r.id, `${nm(p.id)}: kapanıştan sonra açılış`, `${DN[d]} kapanış, ${DN[d + 1]} açılış.`, [p.id + '|' + d, p.id + '|' + (d + 1)], [], d + 1); } });
     if (r.type === 'maxdays') g.staff.forEach((p) => { const n = cnt(a, p.id), lim = Math.max(r.n, p.target || 0); if (n > lim) add(r.id, `${nm(p.id)}: ${n} gün`, `Haftalık sınır ${lim} gün.`, [0, 1, 2, 3, 4, 5, 6].filter((d) => a[p.id + '|' + d]).map((d) => p.id + '|' + d), []); });
   });
-  g.rules.filter((r) => r.on && r.type === 'person' && Array.isArray(r.pdays)).forEach((r) => {
+  g.rules.filter((r) => r.on && r.type === 'person' && Array.isArray(r.pdays) && !isFixOffRule(r)).forEach((r) => {
     const p = g.staff.find((x) => x.id === r.pid); if (!p) return;
     r.pdays.forEach((d) => {
       const k = p.id + '|' + d, x = a[k];
@@ -318,7 +322,7 @@ function evaluate(g) {
       if (r.mode === 'must' && (!x || (r.slot !== 'all' && x.s !== r.slot))) add(r.id, `${nm(p.id)}: ${DN[d]} ${r.slot === 'all' ? 'çalışmalı' : SN[r.slot] + ' yapmalı'}`, g.leave[k] ? 'O gün izin/rapor kaydı var.' : 'Gün hakkı ya da başka bir kural engelliyor.', [k], [], d);
     });
   });
-  g.staff.forEach((p) => { const o = g.offd && g.offd[p.id]; if (Array.isArray(o)) o.forEach((d) => { const k = p.id + '|' + d; if (a[k]) add('off', `${nm(p.id)}: ${DN[d]} sabit haftalık izni ama vardiyada`, '“Personel kodları”ndaki haftalık izin günü.', [k], [], d); }); });
+  g.staff.forEach((p) => { const o = g.offd && g.offd[p.id]; if (Array.isArray(o)) o.forEach((d) => { const k = p.id + '|' + d; if (a[k]) add('off', `${nm(p.id)}: ${DN[d]} sabit haftalık izni ama vardiyada`, 'Sabit haftalık izin günü (Personel kodları ya da kişiye özel kural).', [k], [], d); }); });
   g.staff.forEach((p) => { for (let d = 0; d < 7; d++) { const k = p.id + '|' + d; if (a[k] && g.leave[k]) add('leave', `${nm(p.id)}: ${DN[d]} ${LT(g.leave[k])} ama vardiyada`, 'İzin/rapor kaydıyla çakışıyor.', [k], [], d); } });
   let softScore = 0;
   if (g.rules.some((r) => r.on && r.type === 'fair')) {
@@ -1240,11 +1244,14 @@ const act = {
     draw();
   },
   offDay: async (pid, ds) => {
-    const d = +ds, cur = (cfg().offdays[pid] || []).slice(), on = cur.includes(d);
+    const d = +ds, cur = (cfg().offdays[pid] || []).slice(), on = isOff(pid, d);
     const next = on ? cur.filter((x) => x !== d) : cur.concat([d]).sort();
     const off = Object.assign({}, cfg().offdays, { [pid]: next }); if (!next.length) delete off[pid];
     const p = V.staff.find((x) => x.id === pid);
-    if (await saveCfg({ offdays: off })) { C.toast(`${first(p && p.full_name)}: ${next.length ? next.map((x) => DN[x]).join(', ') + ' haftalık izin' : 'sabit izin günü yok'}`); draw(); }
+    const patch = { offdays: off };
+    if (on && cfg().rules.some((r) => isFixOffRule(r) && r.pid === pid && r.pdays.includes(d))) patch.rules = cfg().rules.map((r) => isFixOffRule(r) && r.pid === pid ? Object.assign({}, r, { pdays: r.pdays.filter((x) => x !== d) }) : r).filter((r) => !(r.type === 'person' && Array.isArray(r.pdays) && !r.pdays.length));
+    const all = effOff(Object.assign({}, cfg(), patch))[pid] || [];
+    if (await saveCfg(patch)) { C.toast(`${first(p && p.full_name)}: ${all.length ? all.map((x) => DN[x]).join(', ') + ' haftalık izin' : 'sabit izin günü yok'}`); draw(); }
   },
   posTick: async (gid, pos) => {
     const tgt = grpById(gid); if (!tgt) return;
@@ -1435,6 +1442,6 @@ window.QRV = {
   init(ctx) { C = ctx; wire(); },
   adminTab, empBody, empLoad, empToday,
   reset() { Object.assign(V, { loaded: false, row: null, _weekLoaded: null, week: null, puan: null }); empCache = null; },
-  _test: { netDaily, shiftMin, cellH, cellAdj, parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
+  _test: { effOff, netDaily, shiftMin, cellH, cellAdj, parseCommands, generate, evaluate, attempt, holidays, monday, addD, wdOf, lcode, ruleText, cfg, cfgFrom, V, puanData, hoursPos, weekHours }
 };
 })();
