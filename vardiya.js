@@ -899,48 +899,127 @@ function puanHtml() {
     </section>`;
 }
 
-// ------------------------------------------------------------------ yazdırma (PDF)
-function openPrint(title, sheet, landscape) {
+// ------------------------------------------------------------------ PDF: önizleme, indir, paylaş
+const PDF_LIBS = ['https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'];
+const loadJs = (src) => new Promise((res, rej) => {
+  if (document.querySelector(`script[data-src="${src}"][data-ok]`)) return res();
+  const s = document.createElement('script'); s.src = src; s.dataset.src = src;
+  s.onload = () => { s.dataset.ok = '1'; res(); }; s.onerror = () => { s.remove(); rej(new Error('PDF aracı yüklenemedi. İnternet bağlantını kontrol et.')); };
+  document.head.appendChild(s);
+});
+let PV = null; // { name, title, landscape, blob, err, busy }
+async function buildPdf() {
+  for (const u of PDF_LIBS) await loadJs(u);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: PV.landscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4', compress: true });
+  const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 8;
+  const pages = [...document.querySelectorAll('#vprint .vpage')];
+  // ekran genişliğinden bağımsız: her sayfayı A4 oranında sabit genişlikte, görünmez bir alanda çiz
+  const PW = PV.landscape ? 1120 : 760;
+  const box = document.createElement('div');
+  box.style.cssText = `position:fixed;left:-20000px;top:0;width:${PW}px;background:#fff;z-index:-1`;
+  box.className = 'vsheet' + (PV.landscape ? ' land' : ''); document.body.appendChild(box);
+  try {
+  for (let i = 0; i < pages.length; i++) {
+    box.innerHTML = ''; const cl = pages[i].cloneNode(true); cl.style.width = PW + 'px'; cl.style.minWidth = PW + 'px'; cl.style.borderTop = '0'; cl.style.paddingTop = '0'; box.appendChild(cl);
+    const cv = await window.html2canvas(cl, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, windowWidth: PW + 40, width: PW });
+    let w = W - 2 * M, h = cv.height * w / cv.width;
+    if (h > H - 2 * M) { h = H - 2 * M; w = cv.width * h / cv.height; }
+    if (i) pdf.addPage();
+    pdf.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', (W - w) / 2, M, w, h);
+  }
+  } finally { box.remove(); }
+  return pdf.output('blob');
+}
+function pvButtons() {
+  const bar = document.querySelector('#vprint .pv-bar'); if (!bar || !PV) return;
+  const ready = !!PV.blob, canShare = ready && !!(navigator.canShare && navigator.canShare({ files: [new File([PV.blob], PV.name, { type: 'application/pdf' })] }));
+  bar.querySelector('[data-vp="dl"]').disabled = !ready;
+  const sh = bar.querySelector('[data-vp="share"]'); sh.disabled = !ready; sh.style.display = !ready || canShare ? '' : 'none';
+  const st = document.querySelector('#vprint .pv-state');
+  st.textContent = PV.err ? PV.err : ready ? `${PV.pages} sayfa hazır · ${PV.name}` : 'PDF hazırlanıyor…';
+  st.style.color = PV.err ? '#B91C1C' : '';
+}
+async function pvDownload() {
+  if (!PV || !PV.blob) return;
+  const url = URL.createObjectURL(PV.blob), a = document.createElement('a');
+  a.href = url; a.download = PV.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  C.toast('PDF indirildi');
+}
+async function pvShare() {
+  if (!PV || !PV.blob) return;
+  const file = new File([PV.blob], PV.name, { type: 'application/pdf' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: PV.title }); } catch (e) { if (e && e.name !== 'AbortError') C.toast('Paylaşılamadı: ' + (e.message || e.name)); }
+  } else { await pvDownload(); C.toast('Bu cihaz dosya paylaşmayı desteklemiyor; PDF indirildi'); }
+}
+// pages: [{ sub, html }] — her öğe ayrı sayfa
+function openPrint(title, pages, landscape, fileName) {
   closePrint();
+  if (typeof pages === 'string') pages = [{ sub: '', html: pages }];
   const st = document.createElement('style'); st.id = 'vprint-page';
   st.textContent = `@media print{@page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:10mm}}`;
   document.head.appendChild(st);
+  const made = new Date(C.now()).toLocaleString('tr-TR', { timeZone: C.tz(), dateStyle: 'short', timeStyle: 'short' });
   const ov = document.createElement('div'); ov.id = 'vprint';
-  ov.innerHTML = `<div class="pv-bar noprint" style="max-width:1100px"><button class="btn ghost" data-vp="close">${C.I.back} Kapat</button><button class="btn" data-vp="print">Yazdır / PDF</button></div>
-    <p class="pv-hint noprint">PDF için yazdırma ekranında “PDF olarak kaydet”i seç. iPhone’da: önizlemeyi iki parmakla büyüt → Paylaş → “Dosyalara Kaydet”.</p>
-    <div class="vsheet${landscape ? ' land' : ''}"><div class="vsh-head"><div><span class="xs muted" style="font-weight:600;letter-spacing:.4px">${esc(String(C.S.me.company.name).toLocaleUpperCase('tr'))}</span><h1>${esc(title)}</h1></div><span class="xs muted">Oluşturma: ${new Date(C.now()).toLocaleString('tr-TR', { timeZone: C.tz(), dateStyle: 'short', timeStyle: 'short' })}</span></div>${sheet}
-    <div class="vsh-sign"><span>Hazırlayan · İmza</span><span>Onaylayan · İmza</span></div></div>`;
-  ov.addEventListener('click', (e) => { const b = e.target.closest('[data-vp]'); if (!b) return; if (b.dataset.vp === 'close') closePrint(); else window.print(); });
+  ov.innerHTML = `<div class="pv-bar noprint" style="max-width:1100px;flex-wrap:wrap;gap:8px"><button class="btn ghost" data-vp="close">${C.I.back} Kapat</button>
+      <span class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" data-vp="dl" disabled>⇩ İndir</button><button class="btn teal" data-vp="share" disabled>Paylaş</button><button class="btn line" data-vp="print">Yazdır</button></span></div>
+    <p class="pv-hint noprint pv-state">PDF hazırlanıyor…</p>
+    <div class="vsheet${landscape ? ' land' : ''}">${pages.map((pg) => `<div class="vpage"><div class="vsh-head"><div><span class="xs muted" style="font-weight:600;letter-spacing:.4px">${esc(String(C.S.me.company.name).toLocaleUpperCase('tr'))}</span><h1>${esc(title)}</h1>${pg.sub ? `<div class="vsh-sub">${esc(pg.sub)}</div>` : ''}</div><span class="xs muted">Oluşturma: ${made}</span></div>${pg.html}
+      <div class="vsh-sign"><span>Hazırlayan · İmza</span><span>Onaylayan · İmza</span></div></div>`).join('')}</div>`;
+  ov.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-vp]'); if (!b || b.disabled) return;
+    if (b.dataset.vp === 'close') closePrint(); else if (b.dataset.vp === 'dl') pvDownload(); else if (b.dataset.vp === 'share') pvShare(); else window.print();
+  });
   document.body.appendChild(ov);
+  const slug = (x) => String(x).toLocaleLowerCase('tr').replace(/[çğıöşü]/g, (c) => ({ ç: 'c', ğ: 'g', ı: 'i', ö: 'o', ş: 's', ü: 'u' }[c])).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  PV = { title, landscape, name: (fileName || slug(title)) + '.pdf', blob: null, err: '', pages: pages.length };
+  const me = PV;
+  pvButtons();
+  setTimeout(() => buildPdf().then((b) => { if (PV === me) { me.blob = b; pvButtons(); } }).catch((e) => { if (PV === me) { me.err = e.message || String(e); pvButtons(); } }), 50);
 }
-function closePrint() { document.getElementById('vprint')?.remove(); document.getElementById('vprint-page')?.remove(); }
+function closePrint() { PV = null; document.getElementById('vprint')?.remove(); document.getElementById('vprint-page')?.remove(); }
+// kişinin ait olduğu grup: ilk pozisyonunun grubu
+const homeGroup = (p) => { const k = Object.keys(p.levels || {})[0]; return k ? groupOf(k) : null; };
 function planPdf() {
-  const g = G(), a = g.asg, grp = selGroup();
-  const staff = planStaff().filter((p) => (Object.keys(p.levels || {}).length || DN.some((_, d) => a[p.id + '|' + d])) && inGroupStaff(p, grp, a)).sort((x, y) => x.full_name.localeCompare(y.full_name, 'tr'));
-  const dayH = [0, 0, 0, 0, 0, 0, 0]; let tot = 0;
-  const rows = staff.map((p) => {
-    let h = 0; const multi = Object.keys(p.levels || {}).length > 1;
-    const cells = DN.map((_, d) => {
-      const k = p.id + '|' + d, x = a[k], lv = g.leave[k], aj = cellAdj(p.id, d); h += aj.work; dayH[d] += aj.work;
-      const tag = aj.tags.length ? ` <i>(${esc(aj.tags.join(', '))})</i>` : '';
-      if (x) return `<td><span class="lv s-${x.s}">${SN[x.s]} ${cellH(x).join('–')}${multi || (grp && !grp.positions.includes(x.p)) ? ' ' + esc(x.p) : ''}</span>${tag}</td>`;
-      if (lv) return `<td><span class="lv ${LK[lv][1]}">${LK[lv][0]}</span></td>`;
-      return `<td class="muted">–${tag}</td>`;
+  const g = G(), a = g.asg, sel = selGroup(), draft = !V.row || !V.row.published_plan || !samePlan();
+  const people = planStaff().filter((p) => Object.keys(p.levels || {}).length || DN.some((_, d) => a[p.id + '|' + d]));
+  const sections = shownGroups().map((gg) => ({ gg, staff: people.filter((p) => homeGroup(p) === gg) }));
+  if (!sel) { const rest = people.filter((p) => !homeGroup(p)); if (rest.length) sections.push({ gg: null, staff: rest }); }
+  const pages = sections.filter((s) => s.staff.length).map(({ gg, staff }) => {
+    const dayH = [0, 0, 0, 0, 0, 0, 0]; let tot = 0;
+    const rows = staff.sort((x, y) => x.full_name.localeCompare(y.full_name, 'tr')).map((p) => {
+      let h = 0; const multi = Object.keys(p.levels || {}).length > 1;
+      const cells = DN.map((_, d) => {
+        const k = p.id + '|' + d, x = a[k], lv = g.leave[k], aj = cellAdj(p.id, d); h += aj.work; dayH[d] += aj.work;
+        const tag = aj.tags.length ? ` <i>(${esc(aj.tags.join(', '))})</i>` : '';
+        if (x) return `<td><span class="lv s-${x.s}">${SN[x.s]} ${cellH(x).join('–')}${multi || (gg && !gg.positions.includes(x.p)) ? ' · ' + esc(x.p) : ''}</span>${tag}</td>`;
+        if (lv) return `<td><span class="lv ${LK[lv][1]}">${LK[lv][0]}</span></td>`;
+        return `<td class="muted">Haftalık izin${tag}</td>`;
+      }).join('');
+      tot += h;
+      return `<tr><th scope="row">${esc(p.full_name)}<br><span class="xs muted" style="font-weight:500">${esc(Object.keys(p.levels || {}).map((k) => k + ' ' + p.levels[k]).join(', '))}</span></th>${cells}<td class="r"><b>${hNum(h)} sa</b></td></tr>`;
     }).join('');
-    tot += h;
-    return `<tr><th scope="row">${esc(p.full_name)}</th>${cells}<td class="r"><b>${hNum(h)} sa</b></td></tr>`;
-  }).join('');
-  const draft = !V.row || !V.row.published_plan || !samePlan();
-  const hl = shownGroups().map((gg) => { const H = hoursFor(gg.id, V.hours); return (cfg().groups.length > 1 ? `<b>${esc(gg.name)}:</b> ` : '') + SL.map((s) => `${SN[s]} ${range(H, s)}`).join(' · '); }).join(' &nbsp;|&nbsp; ');
-  openPrint(`Haftalık Vardiya Planı · ${weekLabel(V.week)}${grp ? ' · ' + grp.name : ''}${draft ? ' · TASLAK' : ''}`,
-    `<p class="xs" style="margin:0 0 8px">${hl} · Saat sütunları mola düşülmüş net çalışma süresidir.</p>
-    <table class="vpt"><thead><tr><th>Çalışan</th>${DN.map((dn, d) => `<th>${dn} ${dShort(addD(V.week, d))}</th>`).join('')}<th class="r">Saat</th></tr></thead><tbody>${rows}
-    <tr class="sum"><th>Toplam</th>${dayH.map((h) => `<td>${hNum(h)} sa</td>`).join('')}<td class="r">${hNum(tot)} sa</td></tr></tbody></table>`, true);
+    const H = gg ? hoursFor(gg.id, V.hours) : null;
+    return { sub: (gg ? gg.name : 'Grubu olmayanlar') + ` · ${staff.length} kişi`, html: `<p class="xs" style="margin:0 0 8px">${H ? SL.map((s) => `${SN[s]} ${range(H, s)}`).join(' · ') + ' · ' : ''}Saat sütunu mola düşülmüş net çalışma süresidir.</p>
+      <table class="vpt"><thead><tr><th>Çalışan</th>${DN.map((dn, d) => `<th>${dn} ${dShort(addD(V.week, d))}</th>`).join('')}<th class="r">Saat</th></tr></thead><tbody>${rows}
+      <tr class="sum"><th>Toplam</th>${dayH.map((h) => `<td>${hNum(h)} sa</td>`).join('')}<td class="r">${hNum(tot)} sa</td></tr></tbody></table>` };
+  });
+  if (!pages.length) return C.toast('PDF için planda kimse yok');
+  openPrint(`Haftalık Vardiya Planı · ${weekLabel(V.week)}${draft ? ' · TASLAK' : ''}`, pages, true, `vardiya-${V.week}${sel ? '-' + sel.name : ''}`.replace(/\s+/g, '-'));
 }
 function puanPdf() {
   const D = puanData(), M = +V.puan.ym.slice(5, 7), hm = Object.values(D.hol).filter((h) => h.iso.startsWith(V.puan.ym));
-  openPrint(`Aylık Puantaj · ${MN[M - 1]} ${D.Y}${selGroup() ? ' · ' + selGroup().name : ''}`,
-    `<p class="xs" style="margin:0 0 8px">${['ok', 'bay', 'gel', 'yil', 'rap', 'izin', 'off'].map((c) => `<b>${PC[c][0]}</b> ${PC[c][1]}`).join(' · ')}${hm.length ? ' — Resmi tatil: ' + hm.map((h) => dShort(h.iso) + ' ' + esc(h.name) + (h.pay2x ? ' (2×)' : '')).join(', ') : ''}</p>${puanTable(D, true)}`, true);
+  const legend = `<p class="xs" style="margin:0 0 8px">${['ok', 'bay', 'gel', 'yil', 'rap', 'izin', 'off'].map((c) => `<b>${PC[c][0]}</b> ${PC[c][1]}`).join(' · ')}${hm.length ? ' — Resmi tatil: ' + hm.map((h) => dShort(h.iso) + ' ' + esc(h.name) + (h.pay2x ? ' (2×)' : '')).join(', ') : ''}</p>`;
+  const hgOf = (uid) => { const p = V.staff.find((x) => x.id === uid); return p ? homeGroup(p) : null; };
+  const groups = shownGroups().map((gg) => ({ name: gg.name, rows: D.rows.filter((r) => hgOf(r.uid) === gg) }));
+  if (!selGroup()) { const rest = D.rows.filter((r) => !hgOf(r.uid)); if (rest.length) groups.push({ name: 'Grubu olmayanlar', rows: rest }); }
+  const pages = groups.filter((x) => x.rows.length).map((x) => {
+    const T = { ok: 0, bay: 0, gel: 0, yil: 0, rap: 0, izin: 0, off: 0 }; x.rows.forEach((r) => Object.keys(T).forEach((k) => { T[k] += r.t[k] || 0; }));
+    return { sub: `${x.name} · ${x.rows.length} kişi`, html: legend + puanTable(Object.assign({}, D, { rows: x.rows, T }), true) };
+  });
+  openPrint(`Aylık Puantaj · ${MN[M - 1]} ${D.Y}`, pages.length ? pages : [{ sub: '', html: legend + puanTable(D, true) }], true, `puantaj-${V.puan.ym}`);
 }
 
 // ------------------------------------------------------------------ çalışan: Vardiyam
@@ -1004,7 +1083,7 @@ async function empToday() {
 function empPdf(ws) {
   if (!empCache) return;
   const r = empWeek(empCache, ws);
-  openPrint(`${C.S.me.full_name} · Vardiya ${weekLabel(ws)}`, `<div style="max-width:520px">${r.html}<p class="small"><b>Toplam: ${r.n} gün · ${hNum(r.hrs)} saat (mola hariç)</b></p></div>`, false);
+  openPrint(`${C.S.me.full_name} · Vardiya ${weekLabel(ws)}`, [{ sub: '', html: `<div style="max-width:520px">${r.html}<p class="small"><b>Toplam: ${r.n} gün · ${hNum(r.hrs)} saat (mola hariç)</b></p></div>` }], false, `vardiyam-${ws}`);
 }
 
 // ------------------------------------------------------------------ olaylar

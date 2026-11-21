@@ -273,3 +273,11 @@ body.vdragging{cursor:grabbing}
 .voff{display:flex;gap:3px}
 .voff button{width:34px;height:34px;border-radius:8px;border:1px solid #D5D8DF;background:#fff;color:#3B414E;font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0}
 .voff button.on{background:#14161A;border-color:#14161A;color:#fff}
+.vsheet{gap:24px}
+.vpage{display:flex;flex-direction:column;gap:12px;background:#fff}
+.vsheet .vpage+.vpage{border-top:2px dashed #D5D8DF;padding-top:24px}
+.vsh-sub{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:8px;background:#EEF2FF;color:#3730A3;font-size:14px;font-weight:700}
+@media print{ .vpage{break-after:page;page-break-after:always} .vpage:last-child{break-after:auto;page-break-after:auto} .vsheet .vpage+.vpage{border-top:0;padding-top:0} }
+.vsheet.land .vpage{min-width:980px}
+#vprint .vsheet.land{overflow-x:auto}
+@media print{ .vsheet.land .vpage{min-width:0} }
